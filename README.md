@@ -52,14 +52,6 @@ In `options.html` you can configure:
 - Source priority order.
 - Theme and shortcut assignments.
 
-## Tags & history (internal analytics)
-
-JumpKey for YouTube keeps an internal local tag score in `chrome.storage.local` and tracks watched video tags for smarter behavior. This storage is used by background scoring and search URL generation (via `getTagStats`, `getTopTags`, and blocking APIs), but tag UI controls were removed from `options.html`.
-
-Currently, tag/object history is not exposed as a separate panel in the extension UI.
-
-Related docs: `TAGS_API.md`, `TESTING_TAGS.md`
-
 ## Popup
 
 The popup (`popup.html`) lists detected videos/tabs, includes a real-time filter input, and provides quick actions to open a specific tab or pick a random video via the header button.
