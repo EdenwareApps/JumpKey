@@ -102,21 +102,3 @@ There is no external backend collecting user data.
 Implementation notes:
 
 - The content scripts are split into two files: `content-video.js` handles video-centric features and utilities, while `content-listing.js` is responsible for listing and tab-related interactions. Shared helper functions are declared in a common file.
-
-## Checklist for Chrome Web Store
-
-- [ ] Prepare ZIP package for upload with all required files included.
-- [ ] Update Privacy Policy (short, local data only, no backend, using `chrome.storage`).
-- [ ] Add screenshots (recommended >= 1280×800, minimum 640×400).
-- [ ] Ensure no inline scripts or remote code evaluation (no `eval`, `new Function`, `fetch`+`eval`).
-- [ ] Validate permissions and justify them in the listing (especially `system.display`).
-
-### Onboarding / fullscreen (opt-in)
-
-- [x] Welcome page (`welcome.html` / `welcome.js`) explaining fullscreen and user consent.
-- [x] `background.js` opens onboarding on first install (`chrome.runtime.onInstalled`).
-- [x] Save user preference in `chrome.storage.sync` (e.g., `enableFullscreen: true/false`).
-- [x] `system.display` only used when `enableFullscreen` is enabled.
-- [x] Document in README and Privacy Policy that fullscreen is optional and user-controlled.
-
-- [ ] Test the full flow: install, onboarding, enable/disable fullscreen, publish to Chrome Web Store.
