@@ -1,0 +1,170 @@
+{
+  "extName": {
+    "message": "JumpKey for YouTube"
+  },
+  "extDescription": {
+    "message": "Fila com um clique para o Watch Later do YouTube, atalhos de teclado incluídos — Nunca perca um vídeo"
+  },
+  "welcomeTitle": {
+    "message": "Bem-vindo ao JumpKey for YouTube"
+  },
+  "welcomeDescription": {
+    "message": "O JumpKey pode entrar em tela cheia automaticamente ao alternar vídeos. Você pode alterar isso mais tarde em Opções."
+  },
+  "welcomeNote": {
+    "message": "Você pode alterar isso mais tarde em Opções."
+  },
+  "welcomeEnableBtn": {
+    "message": "Ativar tela cheia"
+  },
+  "welcomeSkipBtn": {
+    "message": "Não, obrigado"
+  },
+  "welcomeOpenOptions": {
+    "message": "Abrir Opções"
+  },
+  "welcomeFooter": {
+    "message": "A configuração é armazenada localmente no seu navegador e pode ser alterada a qualquer momento."
+  },
+  "showOnboardingBtn": {
+    "message": "Mostrar onboarding novamente"
+  },
+  "actionTitle": {
+    "message": "Girar a Roleta"
+  },
+  "optionsPageTitle": {
+    "message": "Opções do JumpKey"
+  },
+  "optionsSubtitle": {
+    "message": "Opções"
+  },
+  "fullscreenOptionLabel": {
+    "message": "Entrar em tela cheia e focar o vídeo ao alternar abas"
+  },
+  "optionsHint": {
+    "message": "Observação: isto usa a tela cheia da janela do navegador e oculta outras partes da interface com CSS."
+  },
+  "shortcutHint": {
+    "message": "Clique em um campo e pressione uma tecla para personalizar. Você pode atribuir múltiplas teclas a uma ação."
+  },
+  "switchActionLabel": {
+    "message": "Apenas alternar:"
+  },
+  "likeSwitchActionLabel": {
+    "message": "Somente like:"
+  },
+  "dislikeSwitchActionLabel": {
+    "message": "Somente dislike:"
+  },
+  "addKeyBtn": {
+    "message": "+ Adicionar tecla"
+  },
+  "listeningMsg": {
+    "message": "Pressione uma tecla..."
+  },
+  "shortcutsHeader": {
+    "message": "Atalhos de Teclado"
+  },
+  "switchWithRLabel": {
+    "message": "R: apenas alternar"
+  },
+  "likeSwitchPlusLabel": {
+    "message": "+: somente like."
+  },
+  "likeSwitchRightLabel": {
+    "message": "Seta Direita: somente like."
+  },
+  "dislikeSwitchMinusLabel": {
+    "message": "-: somente dislike."
+  },
+  "dislikeSwitchLeftLabel": {
+    "message": "Seta Esquerda: somente dislike."
+  },
+  "videosViewTitle": {
+    "message": "A seguir"
+  },
+  "randomNowBtnTitle": {
+    "message": "Sortear agora"
+  },
+  "saveToWatchLater": {
+    "message": "Salvar para assistir mais tarde"
+  },
+  "saveToWatchLaterSuccess": {
+    "message": "Salvo para assistir mais tarde"
+  },
+  "filterPlaceholder": {
+    "message": "Filtrar..."
+  },
+  "optionsViewTitle": {
+    "message": "Opções"
+  },
+  "loadingVideos": {
+    "message": "Carregando vídeos..."
+  },
+  "loadingOptions": {
+    "message": "Carregando opções..."
+  },
+  "optionsBtn": {
+    "message": "⚙️ Opções"
+  },
+  "backBtn": {
+    "message": "← Voltar"
+  },
+  "themeLabel": {
+    "message": "Tema:"
+  },
+  "historyExportImportHeader": {
+    "message": "Exportar/Importar Fila de Vídeos"
+  },
+  "historyExportImportDescription": {
+    "message": "Exporta e importa a fila de histórico de reprodução + opções como JSON. Importação mescla entradas por ID de vídeo."
+  },
+  "historyJsonLabel": {
+    "message": "JSON"
+  },
+  "exportHistoryBtn": {
+    "message": "Exportar JSON"
+  },
+  "importHistoryBtn": {
+    "message": "Importar JSON (mesclar)"
+  },
+  "historyImportStatusReady": {
+    "message": "Pronto"
+  },
+  "historyImportStatusSuccess": {
+    "message": "Importação bem-sucedida"
+  },
+  "historyImportStatusError": {
+    "message": "Erro na importação"
+  },
+  "syncPlaylistsBtn": {
+    "message": "Sincronizar playlists agora"
+  },
+  "syncPlaylistsStatusChecking": {
+    "message": "Verificando sincronização de playlists..."
+  },
+  "syncPlaylistsConfirm": {
+    "message": "Deseja sincronizar Watch Later e Vídeos Curtidos agora?"
+  },
+  "syncPlaylistsDone": {
+    "message": "Sincronização de playlists concluída."
+  },
+  "syncPlaylistsFailed": {
+    "message": "Falha na sincronização de playlists:"
+  },
+  "syncPlaylistsNoSource": {
+    "message": "Nenhuma fonte de sincronização ativada. Atualize as configurações e tente novamente."
+  },
+  "syncPlaylistsCancelled": {
+    "message": "Sincronização de playlists cancelada."
+  },
+  "themeAuto": {
+    "message": "Auto (Sistema)"
+  },
+  "themeLight": {
+    "message": "Claro"
+  },
+  "themeDark": {
+    "message": "Escuro"
+  }
+}

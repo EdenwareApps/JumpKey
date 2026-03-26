@@ -1,0 +1,22 @@
+{
+  "name": "random-short",
+  "version": "1.0.0",
+  "description": "Chrome/Edge extension to quickly jump between YouTube videos (focused on Shorts) using a single, configurable shortcut and multiple selectable sources.",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["youtube", "shorts", "jump", "queue", "extension"],
+  "author": "EdenwareApps",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EdenwareApps/JumpKey.git"
+  },
+  "homepage": "https://github.com/EdenwareApps/JumpKey",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "jimp": "^1.6.0"
+  }
+}

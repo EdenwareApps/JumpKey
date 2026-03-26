@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "JumpKey for YouTube",
+  "short_name": "JumpKey",
+  "version": "1.0.0",
+  "description": "One-click Queue for YouTube Watch Later, Keyboard Shortcuts Included — Never Miss a Video Again",
+  "default_locale": "en",
+  "action": {
+    "default_title": "View Your YouTube Queue",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "24": "icons/check24.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "24": "icons/check24.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["tabs", "storage", "scripting", "system.display"],
+  "host_permissions": ["https://*.youtube.com/*", "https://youtube.com/*"],
+  "options_page": "options.html",
+  "homepage_url": "https://github.com/EdenwareApps/JumpKey",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EdenwareApps/JumpKey.git"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://youtube.com/*"
+      ],
+      "js": ["content-video.js","content-listing.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

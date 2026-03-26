@@ -1,0 +1,150 @@
+{
+  "extName": {
+    "message": "JumpKey for YouTube"
+  },
+  "extDescription": {
+    "message": "Cola con un clic para 'Ver más tarde' de YouTube, atajos de teclado incluidos — Nunca te pierdas un video"
+  },
+  "welcomeTitle": {
+    "message": "Bienvenido a JumpKey for YouTube"
+  },
+  "welcomeDescription": {
+    "message": "JumpKey for YouTube puede entrar en pantalla completa automáticamente al cambiar de video. Puedes cambiar esto más tarde en Opciones."
+  },
+  "welcomeNote": {
+    "message": "Puedes cambiar esto más tarde en Opciones."
+  },
+  "welcomeEnableBtn": {
+    "message": "Activar pantalla completa"
+  },
+  "welcomeSkipBtn": {
+    "message": "No, gracias"
+  },
+  "welcomeOpenOptions": {
+    "message": "Abrir Opciones"
+  },
+  "welcomeFooter": {
+    "message": "La configuración se almacena localmente en tu navegador y puede cambiarse en cualquier momento."
+  },
+  "showOnboardingBtn": {
+    "message": "Mostrar onboarding nuevamente"
+  },
+  "actionTitle": {
+    "message": "Girar la Ruleta"
+  },
+  "optionsPageTitle": {
+    "message": "Opciones de JumpKey"
+  },
+  "optionsSubtitle": {
+    "message": "Opciones"
+  },
+  "fullscreenOptionLabel": {
+    "message": "Entrar en pantalla completa y enfocar el video al cambiar de pestaña"
+  },
+
+  "optionsHint": {
+    "message": "Nota: esto usa la pantalla completa de la ventana del navegador y oculta otras partes de la interfaz con CSS."
+  },
+  "shortcutHint": {
+    "message": "Haz clic en un campo y presiona una tecla para personalizar. Puedes asignar múltiples teclas a una acción."
+  },
+  "switchActionLabel": {
+    "message": "Solo cambiar:"
+  },
+  "likeSwitchActionLabel": {
+    "message": "Solo like:"
+  },
+  "dislikeSwitchActionLabel": {
+    "message": "Solo dislike:"
+  },
+  "addKeyBtn": {
+    "message": "+ Añadir tecla"
+  },
+  "listeningMsg": {
+    "message": "Presiona una tecla..."
+  },
+  "shortcutsHeader": {
+    "message": "Atajos de Teclado"
+  },
+  "switchWithRLabel": {
+    "message": "R: solo cambiar"
+  },
+  "likeSwitchPlusLabel": {
+    "message": "+: Solo like."
+  },
+  "likeSwitchRightLabel": {
+    "message": "Flecha Derecha: Solo like."
+  },
+  "dislikeSwitchMinusLabel": {
+    "message": "-: Solo dislike."
+  },
+  "dislikeSwitchLeftLabel": {
+    "message": "Flecha Izquierda: Solo dislike."
+  },
+  "videosViewTitle": {
+    "message": "A continuación"
+  },
+  "randomNowBtnTitle": {
+    "message": "Elegir aleatorio"
+  },
+  "saveToWatchLater": {
+    "message": "Guardar para ver más tarde"
+  },
+  "saveToWatchLaterSuccess": {
+    "message": "Guardado para ver más tarde"
+  },
+  "filterPlaceholder": {
+    "message": "Filtrar..."
+  },
+  "optionsViewTitle": {
+    "message": "Opciones"
+  },
+  "loadingVideos": {
+    "message": "Cargando vídeos..."
+  },
+  "loadingOptions": {
+    "message": "Cargando opciones..."
+  },
+  "optionsBtn": {
+    "message": "⚙️ Opciones"
+  },
+  "backBtn": {
+    "message": "← Atrás"
+  },
+  "themeLabel": {
+    "message": "Tema:"
+  },
+  "historyExportImportHeader": {
+    "message": "Exportar/Importar Cola de Vídeos"
+  },
+  "historyExportImportDescription": {
+    "message": "Exporta e importa la cola del historial de reproducción + opciones como JSON. La importación combina entradas por ID de vídeo."
+  },
+  "historyJsonLabel": {
+    "message": "JSON"
+  },
+  "exportHistoryBtn": {
+    "message": "Exportar JSON"
+  },
+  "importHistoryBtn": {
+    "message": "Importar JSON (combinar)"
+  },
+  "historyImportStatusReady": {
+    "message": "Listo"
+  },
+  "historyImportStatusSuccess": {
+    "message": "Importación exitosa"
+  },
+  "historyImportStatusError": {
+    "message": "Error en la importación"
+  },
+  "themeAuto": {
+    "message": "Auto (Sistema)"
+  },
+  "themeLight": {
+    "message": "Claro"
+  },
+  "themeDark": {
+    "message": "Oscuro"
+  }
+}

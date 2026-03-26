@@ -1,0 +1,150 @@
+{
+  "extName": {
+    "message": "JumpKey for YouTube"
+  },
+  "extDescription": {
+    "message": "一键将视频加入 YouTube 稍后观看队列，包含键盘快捷键 — 再也不错过视频"
+  },
+  "welcomeTitle": {
+    "message": "欢迎使用 JumpKey for YouTube"
+  },
+  "welcomeDescription": {
+    "message": "JumpKey for YouTube 可以在切换视频时自动进入全屏。您可以稍后在选项中更改此设置。"
+  },
+  "welcomeNote": {
+    "message": "您可以稍后在选项中更改此设置。"
+  },
+  "welcomeEnableBtn": {
+    "message": "启用全屏"
+  },
+  "welcomeSkipBtn": {
+    "message": "不，谢谢"
+  },
+  "welcomeOpenOptions": {
+    "message": "打开选项"
+  },
+  "welcomeFooter": {
+    "message": "该设置存储在浏览器本地，可随时更改。"
+  },
+  "showOnboardingBtn": {
+    "message": "再次显示入门页"
+  },
+  "actionTitle": {
+    "message": "转动轮盘"
+  },
+  "optionsPageTitle": {
+    "message": "JumpKey 选项"
+  },
+  "optionsSubtitle": {
+    "message": "选项"
+  },
+  "fullscreenOptionLabel": {
+    "message": "切换标签页时进入全屏并聚焦视频"
+  },
+
+  "optionsHint": {
+    "message": "注意：此功能会使用浏览器窗口全屏，并通过 CSS 隐藏其他界面元素。"
+  },
+  "shortcutHint": {
+    "message": "点击字段并按下一个键来自定义。您可以为一个操作分配多个键。"
+  },
+  "switchActionLabel": {
+    "message": "仅切换："
+  },
+  "likeSwitchActionLabel": {
+    "message": "仅点赞："
+  },
+  "dislikeSwitchActionLabel": {
+    "message": "仅点踩："
+  },
+  "addKeyBtn": {
+    "message": "+ 添加键"
+  },
+  "listeningMsg": {
+    "message": "按下一个键..."
+  },
+  "shortcutsHeader": {
+    "message": "键盘快捷键"
+  },
+  "switchWithRLabel": {
+    "message": "R：仅切换"
+  },
+  "likeSwitchPlusLabel": {
+    "message": "+：仅点赞。"
+  },
+  "likeSwitchRightLabel": {
+    "message": "右方向键：仅点赞。"
+  },
+  "dislikeSwitchMinusLabel": {
+    "message": "-：仅点踩。"
+  },
+  "dislikeSwitchLeftLabel": {
+    "message": "左方向键：仅点踩。"
+  },
+  "videosViewTitle": {
+    "message": "下一条"
+  },
+  "randomNowBtnTitle": {
+    "message": "随机选择"
+  },
+  "saveToWatchLater": {
+    "message": "稍后观看"
+  },
+  "saveToWatchLaterSuccess": {
+    "message": "已保存到稍后观看"
+  },
+  "filterPlaceholder": {
+    "message": "筛选..."
+  },
+  "optionsViewTitle": {
+    "message": "选项"
+  },
+  "loadingVideos": {
+    "message": "正在加载视频..."
+  },
+  "loadingOptions": {
+    "message": "正在加载选项..."
+  },
+  "optionsBtn": {
+    "message": "⚙️ 选项"
+  },
+  "backBtn": {
+    "message": "← 返回"
+  },
+  "themeLabel": {
+    "message": "主题："
+  },
+  "historyExportImportHeader": {
+    "message": "导出/导入视频队列"
+  },
+  "historyExportImportDescription": {
+    "message": "将播放历史队列 + 选项导出/导入为 JSON。导入按视频 ID 合并条目。"
+  },
+  "historyJsonLabel": {
+    "message": "JSON"
+  },
+  "exportHistoryBtn": {
+    "message": "导出 JSON"
+  },
+  "importHistoryBtn": {
+    "message": "导入 JSON（合并）"
+  },
+  "historyImportStatusReady": {
+    "message": "就绪"
+  },
+  "historyImportStatusSuccess": {
+    "message": "导入成功"
+  },
+  "historyImportStatusError": {
+    "message": "导入错误"
+  },
+  "themeAuto": {
+    "message": "自动（系统）"
+  },
+  "themeLight": {
+    "message": "浅色"
+  },
+  "themeDark": {
+    "message": "深色"
+  }
+}

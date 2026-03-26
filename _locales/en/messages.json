@@ -1,0 +1,171 @@
+{
+  "extName": {
+    "message": "JumpKey for YouTube"
+  },
+  "extDescription": {
+    "message": "One-click Queue for YouTube Watch Later, Keyboard Shortcuts Included — Never Miss a Video Again"
+  },
+  "welcomeTitle": {
+    "message": "Welcome to JumpKey for YouTube"
+  },
+  "welcomeDescription": {
+    "message": "JumpKey for YouTube can automatically enter fullscreen when switching videos. You can change this later in Options."
+  },
+  "welcomeNote": {
+    "message": "You can change this later in Options."
+  },
+  "welcomeEnableBtn": {
+    "message": "Enable fullscreen"
+  },
+  "welcomeSkipBtn": {
+    "message": "No thanks"
+  },
+  "welcomeOpenOptions": {
+    "message": "Open Options"
+  },
+  "welcomeFooter": {
+    "message": "The setting is stored locally in your browser and can be changed at any time."
+  },
+  "showOnboardingBtn": {
+    "message": "Show onboarding again"
+  },
+  "actionTitle": {
+    "message": "View Your Queue"
+  },
+  "optionsPageTitle": {
+    "message": "JumpKey Options"
+  },
+  "optionsSubtitle": {
+    "message": "Options"
+  },
+  "fullscreenOptionLabel": {
+    "message": "Enter fullscreen and focus the video when switching tabs"
+  },
+  "optionsHint": {
+    "message": "Note: This uses browser window fullscreen and hides other UI with CSS."
+  },
+  "shortcutHint": {
+    "message": "Click a field and press a key to customize. You can assign multiple keys to an action."
+  },
+  "switchActionLabel": {
+    "message": "Switch only:"
+  },
+  "likeSwitchActionLabel": {
+    "message": "Like only:"
+  },
+  "dislikeSwitchActionLabel": {
+    "message": "Dislike only:"
+  },
+  "addKeyBtn": {
+    "message": "+ Add key"
+  },
+  "listeningMsg": {
+    "message": "Press a key..."
+  },
+  "shortcutsHeader": {
+    "message": "Keyboard Shortcuts"
+  },
+  "switchWithRLabel": {
+    "message": "R: switch only"
+  },
+  "likeSwitchPlusLabel": {
+    "message": "+: Like only."
+  },
+  "likeSwitchRightLabel": {
+    "message": "Right Arrow: Like only."
+  },
+  "dislikeSwitchMinusLabel": {
+    "message": "-: Dislike only."
+  },
+  "dislikeSwitchLeftLabel": {
+    "message": "Left Arrow: Dislike only."
+  },
+
+  "videosViewTitle": {
+    "message": "Up Next"
+  },
+  "randomNowBtnTitle": {
+    "message": "Pick Random"
+  },
+  "saveToWatchLater": {
+    "message": "Save to Watch Later"
+  },
+  "saveToWatchLaterSuccess": {
+    "message": "Saved to Watch Later"
+  },
+  "filterPlaceholder": {
+    "message": "Filter..."
+  },
+  "optionsViewTitle": {
+    "message": "Options"
+  },
+  "loadingVideos": {
+    "message": "Loading videos..."
+  },
+  "loadingOptions": {
+    "message": "Loading options..."
+  },
+  "optionsBtn": {
+    "message": "⚙️ Options"
+  },
+  "backBtn": {
+    "message": "← Back"
+  },
+  "themeLabel": {
+    "message": "Theme:"
+  },
+  "historyExportImportHeader": {
+    "message": "Export/Import Video Queue"
+  },
+  "historyExportImportDescription": {
+    "message": "Export and import playback history queue + options as JSON. Import merges entries by video ID."
+  },
+  "historyJsonLabel": {
+    "message": "JSON"
+  },
+  "exportHistoryBtn": {
+    "message": "Export JSON"
+  },
+  "importHistoryBtn": {
+    "message": "Import JSON (merge)"
+  },
+  "historyImportStatusReady": {
+    "message": "Ready"
+  },
+  "historyImportStatusSuccess": {
+    "message": "Import successful"
+  },
+  "historyImportStatusError": {
+    "message": "Import error"
+  },
+  "syncPlaylistsBtn": {
+    "message": "Sync playlists now"
+  },
+  "syncPlaylistsStatusChecking": {
+    "message": "Checking playlist sync..."
+  },
+  "syncPlaylistsConfirm": {
+    "message": "Do you want to sync Watch Later and Liked videos now?"
+  },
+  "syncPlaylistsDone": {
+    "message": "Playlist sync complete."
+  },
+  "syncPlaylistsFailed": {
+    "message": "Playlist sync failed:"
+  },
+  "syncPlaylistsNoSource": {
+    "message": "No sync sources enabled. Update settings and try again."
+  },
+  "syncPlaylistsCancelled": {
+    "message": "Playlist sync cancelled."
+  },
+  "themeAuto": {
+    "message": "Auto (System)"
+  },
+  "themeLight": {
+    "message": "Light"
+  },
+  "themeDark": {
+    "message": "Dark"
+  }
+}

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JumpKey - Open Videos</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="header-title">
+        <img class="extension-icon" src="icons/icon24.png" alt="JumpKey">
+        <h2 data-i18n="videosViewTitle">Up Next</h2>
+      </div>
+      <div class="header-controls">
+        <input id="filterInput" class="filter-input" type="search" placeholder="Filter videos..." title="Filter videos" aria-label="Filter videos" data-i18n-placeholder="filterPlaceholder" data-i18n-title="filterPlaceholder" data-i18n-aria-label="filterPlaceholder">
+        <button id="headerRandomBtn" class="btn-random" data-i18n-title="randomNowBtnTitle" data-i18n-aria-label="randomNowBtnTitle" title="Pick Random" aria-label="Pick Random">&#10536;</button>
+        <button id="optionsBtn" class="btn-options" data-i18n="optionsBtn">⚙️</button>
+      </div>
+    </div>
+    
+    <div id="videosList" class="videos-list">
+      <div class="loading" data-i18n="loadingVideos">Loading videos...</div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

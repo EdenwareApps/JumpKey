@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="optionsPageTitle">JumpKey Options</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <div class="header-title">
+        <img class="extension-icon" src="icons/icon24.png" alt="JumpKey for YouTube">
+        <div>
+          <h1 data-i18n="extName">JumpKey for YouTube</h1>
+          <p class="subtitle" data-i18n="optionsSubtitle">Options</p>
+        </div>
+      </div>
+
+      <label class="option">
+        <input type="checkbox" id="fullscreenSwitch" />
+        <span data-i18n="fullscreenOptionLabel">Enter fullscreen and focus the video when switching tabs</span>
+      </label>
+
+      <section class="subsection">
+        <h2 class="subsection-title">Selection Sources</h2>
+        <label class="option">
+          <input type="checkbox" id="sourceWatchLater" />
+          <span>Watch Later</span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="sourceLikedVideos" />
+          <span>Liked videos</span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="sourceShortsTabs" />
+          <span>Open Shorts tabs</span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="sourceWatchTabs" />
+          <span>Open watch/video tabs</span>
+        </label>
+      </section>
+
+      <section class="subsection">
+        <h2 class="subsection-title">Watch Later Sync</h2>
+        <label class="option">
+          <input type="checkbox" id="syncToYoutubeWatchLater" />
+          <span>Also add videos to YouTube Watch Later (sync)</span>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="autoRemoveWatchedFromWatchLater" />
+          <span>Automatically remove watched videos from YouTube Watch Later (default: on)</span>
+        </label>
+
+        <div class="bulk-add">
+            <label class="option-label" for="bulkWatchLaterTextarea">Bulk add to Watch Later (paste video URLs or IDs, one per line)</label>
+            <textarea id="bulkWatchLaterTextarea" rows="6" class="bulk-textarea" placeholder="Paste video URLs or IDs, one per line" title="Paste video URLs or IDs, one per line"></textarea>
+            <div class="bulk-actions"><button id="bulkAddWatchLaterBtn" class="btn-primary">Add to Watch Later</button></div>
+            <div id="bulkAddStatus" class="bulk-status" role="status" aria-live="polite"></div>
+          </div>
+
+        <div class="bulk-add">
+            <div class="bulk-actions">
+              <button id="syncPlaylistsBtn" class="btn-primary" data-i18n="syncPlaylistsBtn">Sync playlists now</button>
+            </div>
+            <div id="syncPlaylistsStatus" class="bulk-status" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <div class="option-group">
+        <label class="option-label" for="emptyDestinationSelect">Quando não houver mais vídeos:</label>
+        <select id="emptyDestinationSelect" class="theme-select">
+          <option value="shorts">/shorts</option>
+          <option value="home">home</option>
+          <option value="subscriptions">inscrições</option>
+          <option value="watch-later">watch later</option>
+        </select>
+      </div>
+
+      <div class="option-group">
+        <label class="option-label" for="themeSelect" data-i18n="themeLabel">Theme:</label>
+        <select id="themeSelect" class="theme-select">
+          <option value="auto" data-i18n="themeAuto">Auto (System)</option>
+          <option value="light" data-i18n="themeLight">Light</option>
+          <option value="dark" data-i18n="themeDark">Dark</option>
+        </select>
+      </div>
+
+      <p class="hint" data-i18n="optionsHint">Note: This uses browser window fullscreen and hides other UI with CSS.</p>
+
+      <div class="option-group">
+        <button id="showOnboardingBtn" class="btn-primary" data-i18n="showOnboardingBtn">Show onboarding again</button>
+      </div>
+
+      <h2 data-i18n="shortcutsHeader">Keyboard Shortcuts</h2>
+      <p class="shortcut-hint" data-i18n="shortcutHint">Click a field and press a key to customize. You can assign multiple keys to an action.</p>
+
+      <div class="shortcut-group">
+        <label class="shortcut-label">Switch Random Shorts (Y):</label>
+        <div class="key-bindings" id="switchRandomBindings"></div>
+        <button class="key-input" type="button" id="addSwitchRandomKey" data-i18n="addKeyBtn">+ Add key</button>
+      </div>
+
+      <div class="shortcut-group">
+        <label class="shortcut-label" data-i18n="likeSwitchActionLabel">Like only:</label>
+        <div class="key-bindings" id="likeSwitchBindings"></div>
+        <button class="key-input" type="button" id="addLikeSwitchKey" data-i18n="addKeyBtn">+ Add key</button>
+      </div>
+
+      <div class="shortcut-group">
+        <label class="shortcut-label" data-i18n="dislikeSwitchActionLabel">Dislike only:</label>
+        <div class="key-bindings" id="dislikeSwitchBindings"></div>
+        <button class="key-input" type="button" id="addDislikeSwitchKey" data-i18n="addKeyBtn">+ Add key</button>
+      </div>
+
+      <section class="export-import-section">
+        <h2 data-i18n="historyExportImportHeader">Export/Import Video Queue</h2>
+        <p data-i18n="historyExportImportDescription">Export and import playback history queue + options as JSON. Import merges entries by video ID.</p>
+
+        <input id="historyJsonFileInput" type="file" accept="application/json,.json" title="Seleção de arquivo JSON de histórico" aria-hidden="true" />
+
+        <div class="option-group">
+          <button id="exportHistoryBtn" class="btn-secondary" data-i18n="exportHistoryBtn">Export JSON</button>
+          <button id="importHistoryBtn" class="btn-secondary" data-i18n="importHistoryBtn">Import JSON (merge)</button>
+        </div>
+
+        <p id="historyImportStatus" class="hint"></p>
+      </section>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>
