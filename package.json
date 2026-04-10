@@ -4,7 +4,9 @@
   "description": "Chrome/Edge extension to quickly jump between YouTube videos (focused on Shorts) using a single, configurable shortcut and multiple selectable sources.",
   "main": "background.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package": "node scripts/package-extension.js",
+    "serve-test": "node test-youtube-duration-server.js"
   },
   "keywords": ["youtube", "shorts", "jump", "queue", "extension"],
   "author": "EdenwareApps",

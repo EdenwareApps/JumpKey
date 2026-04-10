@@ -93,6 +93,15 @@
   "saveToWatchLaterSuccess": {
     "message": "Saved to Watch Later"
   },
+  "sourceWatchLater": {
+    "message": "Watch Later"
+  },
+  "sourceLikedVideos": {
+    "message": "Liked Videos"
+  },
+  "sourceOpenTab": {
+    "message": "Opened"
+  },
   "filterPlaceholder": {
     "message": "Filter..."
   },

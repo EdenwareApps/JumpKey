@@ -33,14 +33,25 @@ function closeTab() {
   window.close();
 }
 
+function openYoutubeHome() {
+  try {
+    chrome.tabs.create({ url: 'https://www.youtube.com/', active: true });
+  } catch (err) {
+    console.warn('[JumpKey Welcome] Failed to open YouTube home page:', err);
+  }
+}
+
 function setFullscreenSetting(enabled) {
   const payload = {
     fullscreenOnSwitch: Boolean(enabled),
     welcomeComplete: true
   };
   chrome.storage.sync.set(payload, () => {
-    // Best effort, close the tab after a short delay so the user sees the result.
-    setTimeout(closeTab, 150);
+    // Best effort, open YouTube home and close the welcome tab.
+    setTimeout(() => {
+      openYoutubeHome();
+      closeTab();
+    }, 150);
   });
 }
 

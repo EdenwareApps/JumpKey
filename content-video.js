@@ -69,7 +69,6 @@ let fullscreenExitValidation = null;
 let customStyle = null;
 let longVideoStyle = null;
 let observedRootNode = null;
-let blockedTags = window.__jumpKeyBlockedTags || (window.__jumpKeyBlockedTags = []);
 let currentVideoId = null;
 let pendingVideoReportTimeout = null;
 let pendingVideoReportRaf = null;
@@ -118,6 +117,20 @@ function handleEscToExitFullscreen(event) {
       } catch (e) {
         console.warn('[JumpKey] Falha ao restaurar janela maximizada:', e);
       }
+    }
+
+    // Sempre tente remover qualquer modo expandido ativo ao pressionar ESC.
+    try {
+      if (typeof window.removerModoExpandido === 'function') {
+        window.removerModoExpandido();
+        console.log('[JumpKey] removerModoExpandido chamado após ESC');
+      }
+      if (typeof window.removerModoExpandidoLongo === 'function') {
+        window.removerModoExpandidoLongo();
+        console.log('[JumpKey] removerModoExpandidoLongo chamado após ESC');
+      }
+    } catch (e) {
+      console.warn('[JumpKey] Cleanup do modo expandido após ESC falhou:', e);
     }
   }
 }
@@ -226,19 +239,21 @@ scheduleOutOfMemoryCheck();
 // Auto report duration when a YouTube video page loads or navigates
 window.addEventListener('load', () => {
   setTimeout(() => {
+    queueReportCurrentVideo();
     reportDurationToBackground();
   }, 800);
 });
 
 window.addEventListener('yt-navigate-finish', () => {
   setTimeout(() => {
+    queueReportCurrentVideo();
     reportDurationToBackground();
   }, 800);
 });
 
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    reportCurrentVideo();
+    queueReportCurrentVideo();
     reportDurationToBackground();
   }
 });
@@ -248,266 +263,65 @@ let __jumpkey_lastLocation = window.location.href;
 setInterval(() => {
   if (window.location.href !== __jumpkey_lastLocation) {
     __jumpkey_lastLocation = window.location.href;
+    queueReportCurrentVideo();
     reportDurationToBackground();
   }
 }, 1200);
 
 function extractVideoId(url) {
-  const match = url.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
-  return match ? match[1] : null;
-}
-
-// ============================================================
-// 🧠 SISTEMA ROBUSTO DE EXTRAÇÃO DE TAGS
-// Combina 3 métodos para máxima confiabilidade
-// ============================================================
-
-/**
- * MÉTODO 1: Extrai tags do ytInitialPlayerResponse (mais confiável)
- * ✅ Não depende do DOM
- * ✅ Funciona em vídeos normais
- * ⚠️ Em Shorts às vezes não vem preenchido
- */
-function getTagsFromPlayerResponse() {
-  try {
-    const data = window.ytInitialPlayerResponse;
-    const keywords = data?.videoDetails?.keywords || [];
-    return keywords.map(t => t.toLowerCase());
-  } catch (error) {
-    console.warn('[JumpKey] Error extracting ytInitialPlayerResponse tags:', error);
-    return [];
-  }
-}
-
-/**
- * MÉTODO 2: Extrai tags da meta tag keywords (simples e estável)
- * ✅ Funciona inclusive em Shorts
- * ✅ Muito estável
- */
-function getMetaKeywords() {
-  try {
-    const meta = document.querySelector('meta[name="keywords"]');
-    if (!meta || !meta.content) return [];
-    return meta.content
-      .split(',')
-      .map(t => t.trim().toLowerCase())
-      .filter(t => t.length > 0);
-  } catch (error) {
-    console.warn('[JumpKey] Error extracting meta keywords:', error);
-    return [];
-  }
-}
-
-/**
- * MÉTODO EXTRA: Extrai nome do canal atual como tag
- */
-function getChannelName() {
-  try {
-    const selectors = [
-      'ytd-video-owner-renderer #channel-name a',
-      'ytd-video-owner-renderer a#author-text',
-      '#owner-name a',
-      'yt-formatted-string.ytd-channel-name-renderer a',
-      'ytd-channel-name a'
-    ];
-
-    for (const selector of selectors) {
-      const elem = document.querySelector(selector);
-      const text = elem?.textContent || elem?.innerText;
-      if (text && typeof text === 'string') {
-        const clean = text.trim().toLowerCase();
-        if (clean.length > 0) {
-          return clean;
-        }
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.warn('[JumpKey] Error extracting channel name:', error);
-    return null;
-  }
-}
-
-/**
- * MÉTODO 3: Extrai hashtags da descrição (essencial para Shorts)
- * ✅ Muitos Shorts dependem de hashtags
- * ✅ Funciona bem em diferentes contextos
- */
-function getHashtagsFromDescription() {
-  try {
-    const hashtags = [];
-    
-    // Tenta múltiplos seletores para descrição (Shorts vs vídeos normais)
-    const descriptionSelectors = [
-      'yt-attributed-string[split-lines]',
-      '#description-text',
-      '#description',
-      'ytd-video-secondary-info-renderer #description'
-    ];
-
-
-    for (const selector of descriptionSelectors) {
-      const elements = document.querySelectorAll(selector);
-      elements.forEach((elem) => {
-        const text = elem.textContent || elem.innerText;
-        if (typeof text === 'string') {
-          const foundHashtags = text.match(/#\w+/g);
-          if (foundHashtags) {
-            hashtags.push(...foundHashtags);
-          }
-        }
-      });
-    }
-
-    return hashtags;
-  } catch (error) {
-    console.warn('[JumpKey] Error extracting hashtags from description:', error);
-    return [];
-  }
-}
-
-/**
- * Combina todas as fontes de tags (player response, meta keywords, hashtags)
- * e retorna uma lista deduplicada e normalizada (lowercase, trimmed).
- */
-function extractAllTags() {
-  try {
-    const fromPlayer = Array.isArray(getTagsFromPlayerResponse()) ? getTagsFromPlayerResponse() : [];
-    const fromMeta = Array.isArray(getMetaKeywords()) ? getMetaKeywords() : [];
-    const fromDesc = Array.isArray(getHashtagsFromDescription()) ? getHashtagsFromDescription() : [];
-    const channelName = getChannelName();
-
-    const all = [...fromPlayer, ...fromMeta, ...fromDesc, ...(channelName ? [channelName] : [])]
-      .map(t => (typeof t === 'string' ? t.trim().toLowerCase() : ''))
-      .filter(Boolean);
-
-    return Array.from(new Set(all));
-  } catch (e) {
-    console.warn('[JumpKey] extractAllTags error:', e);
-    return [];
-  }
-}
-
-window.extractAllTags = extractAllTags;
-
-/**
- * 📊 Sistema de score de tags (registra frequência)
- * Útil para criar buscas dinâmicas baseadas em preferências
- */
-function scoreTags(tags) {
-  try {
-    const store = JSON.parse(localStorage.getItem('sr_tag_scores') || '{}');
-
-    tags.forEach(tag => {
-      store[tag] = (store[tag] || 0) + 1;
-    });
-
-    localStorage.setItem('sr_tag_scores', JSON.stringify(store));
-
-    // Log apenas das top 10 tags a cada 20 registros
-    const totalScores = Object.values(store).reduce((a, b) => a + b, 0);
-    if (totalScores % 20 === 0) {
-      const topTags = Object.entries(store)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
-      console.log('[JumpKey] Top 10 tags:', topTags);
-    }
-  } catch (error) {
-    console.warn('[JumpKey] Error scoring tags:', error);
-  }
-}
-
-/**
- * 🔍 Obtém tags mais populares do histórico
- */
-function getTopTags(limit = 10) {
-  try {
-    const store = JSON.parse(localStorage.getItem('sr_tag_scores') || '{}');
-    return Object.entries(store)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, limit)
-      .map(([tag]) => tag);
-  } catch (error) {
-    console.warn('[JumpKey] Error getting top tags:', error);
-    return [];
-  }
-}
-
-// Mantém compatibilidade com código existente
-function extractHashtagsFromDescription() {
-  return extractAllTags();
-}
-
-// ============================================================
-// 🎲 FUNÇÕES UTILITÁRIAS PARA MOTOR DOPAMINÉRGICO
-// ============================================================
-
-/**
- * 🔗 Gera URL de busca do YouTube baseada em tags
- * Útil para criar buscas dinâmicas personalizadas
- */
-function generateSearchUrl(tags, maxTags = 3) {
-  if (!Array.isArray(tags) || tags.length === 0) {
+  if (!url || typeof url !== 'string') {
     return null;
   }
 
-  const searchTags = tags.slice(0, maxTags);
-  const query = searchTags.join('+');
-  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-}
-
-/**
- * 🎯 Gera URL de busca baseada nas tags mais populares
- * Combina as tags mais assistidas para encontrar conteúdo similar
- */
-function generateSmartSearchUrl(limit = 3) {
-  const topTags = getTopTags(limit);
-  return generateSearchUrl(topTags);
-}
-
-/**
- * 🧹 Limpa dados de score de tags (útil para reset)
- */
-function clearTagScores() {
-  try {
-    localStorage.removeItem('sr_tag_scores');
-    console.log('[JumpKey] Tag scores cleared');
-    return true;
-  } catch (error) {
-    console.warn('[JumpKey] Error clearing tag scores:', error);
-    return false;
+  const shortsMatch = url.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
+  if (shortsMatch && shortsMatch[1]) {
+    return shortsMatch[1];
   }
-}
 
-/**
- * 📈 Exporta estatísticas de tags
- * Retorna objeto com métricas úteis
- */
-function getTagStats() {
-  try {
-    const store = JSON.parse(localStorage.getItem('sr_tag_scores') || '{}');
-    const entries = Object.entries(store);
-    const total = entries.reduce((sum, [, count]) => sum + count, 0);
-    
-    return {
-      totalTags: entries.length,
-      totalViews: total,
-      topTags: entries
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20)
-        .map(([tag, count]) => ({ tag, count, percentage: ((count / total) * 100).toFixed(1) })),
-      averagePerTag: entries.length > 0 ? (total / entries.length).toFixed(2) : 0
-    };
-  } catch (error) {
-    console.warn('[JumpKey] Error getting tag stats:', error);
-    return null;
+  const watchMatch = url.match(/[?&]v=([a-zA-Z0-9_-]+)/);
+  if (watchMatch && watchMatch[1]) {
+    return watchMatch[1];
   }
+  return null;
 }
 
 function getVideoTitle() {
-  const titleElement = document.querySelector('yt-formatted-string.title');
-  return titleElement ? titleElement.textContent : 'Unknown';
+  const selectors = [
+    'ytd-watch-metadata h1 yt-formatted-string',
+    'h1.ytd-watch-metadata yt-formatted-string',
+    'yt-formatted-string.style-scope.ytd-watch-metadata',
+    'yt-formatted-string.title',
+    'meta[property="og:title"]'
+  ];
+
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (!element) {
+      continue;
+    }
+
+    const contentAttr = element.getAttribute && element.getAttribute('content');
+    const text = typeof contentAttr === 'string' && contentAttr.trim().length > 0
+      ? contentAttr
+      : (element.textContent || element.innerText || '');
+
+    const clean = text.trim();
+    if (clean) {
+      return clean;
+    }
+  }
+
+  return 'Unknown';
+}
+
+function isYoutubeVideoPage() {
+  try {
+    const host = window.location.hostname || '';
+    const path = window.location.pathname || '';
+    return host.includes('youtube.com') && (path.startsWith('/shorts/') || path.startsWith('/watch'));
+  } catch (error) {
+    return /youtube\.com\/(shorts|watch)/.test(window.location.href || '');
+  }
 }
 
 async function reportCurrentVideo() {
@@ -522,31 +336,23 @@ async function reportCurrentVideo() {
   const url = window.location.href;
   const videoId = extractVideoId(url);
 
-  if (!videoId || videoId === currentVideoId) {
+  if (!videoId) {
     return;
   }
 
   currentVideoId = videoId;
 
-  // 🎯 Usa o novo sistema robusto de extração de tags
-  const extractTagsFn = typeof extractAllTags === 'function'
-    ? extractAllTags
-    : (typeof window.extractAllTags === 'function' ? window.extractAllTags : null);
-  const tags = extractTagsFn ? extractTagsFn() : [];
   const title = getVideoTitle();
-
-  // 📊 Registra tags para sistema de score
-  if (tags.length > 0) {
-    scoreTags(tags);
-  }
-
-  console.log('[JumpKey] Current video:', { videoId, title, tags });
+  console.log('[JumpKey] Current video:', { videoId, title });
 
   chrome.runtime.sendMessage(
-    { action: 'saveVideoToHistory', videoId, title, tags },
+    { action: 'saveVideoToHistory', videoId, title },
     (response) => {
       if (chrome.runtime.lastError) {
-      console.warn('[JumpKey] Message error:', chrome.runtime.lastError);
+      console.warn('[JumpKey] saveVideoToHistory message error:', {
+        videoId,
+        message: chrome.runtime.lastError.message
+      });
       } else {
       console.log('[JumpKey] Video saved:', response);
       }
@@ -570,7 +376,10 @@ async function reportCurrentVideo() {
             if (items.autoRemoveWatchedFromWatchLater) {
               chrome.runtime.sendMessage({ action: 'removeFromYoutubeWatchLater', videoId }, (resp) => {
                 if (chrome.runtime.lastError) {
-                  console.warn('[JumpKey] removeFromYoutubeWatchLater message error:', chrome.runtime.lastError);
+                  console.warn('[JumpKey] removeFromYoutubeWatchLater message error:', {
+                    videoId,
+                    message: chrome.runtime.lastError.message
+                  });
                 } else {
                   console.log('[JumpKey] Request to remove from Watch Later sent:', resp);
                 }
@@ -588,21 +397,10 @@ async function reportCurrentVideo() {
   }
 
   // 🚫 Verifica se o vídeo tem tags bloqueadas
-  if (blockedTags.length > 0 && tags.length > 0) {
-    const hasBlockedTag = tags.some((tag) => blockedTags.includes(tag));
-    if (hasBlockedTag) {
-      console.log('[JumpKey] Current video has blocked tag, skipping...', tags);
-      chrome.runtime.sendMessage({ action: 'switchShorts' }, (response) => {
-          if (chrome.runtime.lastError) {
-          console.warn('[JumpKey] Skip message error:', chrome.runtime.lastError);
-        }
-      });
-    }
-  }
 }
 
 function scheduleReportCurrentVideo(delay = VIDEO_REPORT_DEBOUNCE_MS) {
-  if (!isShortsPage()) {
+  if (!isYoutubeVideoPage()) {
     return;
   }
 
@@ -617,7 +415,7 @@ function scheduleReportCurrentVideo(delay = VIDEO_REPORT_DEBOUNCE_MS) {
 }
 
 function queueReportCurrentVideo() {
-  if (!isShortsPage()) {
+  if (!isYoutubeVideoPage()) {
     return;
   }
 
@@ -628,20 +426,6 @@ function queueReportCurrentVideo() {
   pendingVideoReportRaf = requestAnimationFrame(() => {
     pendingVideoReportRaf = null;
     scheduleReportCurrentVideo();
-  });
-}
-
-async function refreshBlockedTags() {
-  chrome.runtime.sendMessage({ action: 'getBlockedTags' }, (response) => {
-    if (response && response.blockedTags) {
-      // Only log if tags changed
-      const tagsChanged = JSON.stringify(blockedTags) !== JSON.stringify(response.blockedTags);
-      blockedTags = response.blockedTags;
-      window.__jumpKeyBlockedTags = blockedTags;
-      if (tagsChanged) {
-        console.log('[JumpKey] Blocked tags updated:', blockedTags);
-      }
-    }
   });
 }
 
@@ -703,7 +487,15 @@ async function reportDurationToBackground() {
 
   if (duration && duration > 0) {
     console.log('[JumpKey] reportVideoDuration emitting', { videoId, duration });
-    chrome.runtime.sendMessage({ action: 'reportVideoDuration', videoId, duration });
+    chrome.runtime.sendMessage({ action: 'reportVideoDuration', videoId, duration }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('[JumpKey] reportVideoDuration message error:', {
+          videoId,
+          duration,
+          message: chrome.runtime.lastError.message
+        });
+      }
+    });
   } else {
     console.log('[JumpKey] reportVideoDuration no duration available yet', { videoId, duration });
   }
@@ -839,7 +631,9 @@ function switchShorts() {
 
     chrome.runtime.sendMessage({ action: 'switchShorts' }, () => {
         if (chrome.runtime.lastError) {
-        console.warn('[JumpKey] Message error (extension may have reloaded):', chrome.runtime.lastError);
+        console.warn('[JumpKey] switchShorts message error (extension may have reloaded):', {
+          message: chrome.runtime.lastError.message
+        });
       }
     });
   } catch (error) {
@@ -1017,15 +811,25 @@ function getShortcutCommand(event) {
 }
 
 function isLikelyWindowFullscreen() {
-  const tolerance = 48; // Tolerance for taskbars and small variations
-  const matchesAvail =
+  const tolerance = 48; // Tolerance for taskbars, window borders and small variations
+
+  const matchesOuterScreen =
+    window.outerWidth >= (screen.width - tolerance) &&
+    window.outerHeight >= (screen.height - tolerance);
+
+  const matchesOuterAvail =
+    window.outerWidth >= (screen.availWidth - tolerance) &&
+    window.outerHeight >= (screen.availHeight - tolerance);
+
+  const matchesInnerAvail =
     window.innerWidth >= (screen.availWidth - tolerance) &&
     window.innerHeight >= (screen.availHeight - tolerance);
-  const matchesScreen =
-    window.innerWidth >= (screen.width - tolerance) &&
-    window.innerHeight >= (screen.height - tolerance);
 
-  return matchesAvail || matchesScreen;
+  const browserChromeHeight = window.outerHeight - window.innerHeight;
+  const browserChromeWidth = window.outerWidth - window.innerWidth;
+  const minimalBrowserChrome = browserChromeHeight < 72 && browserChromeWidth < 72;
+
+  return (matchesOuterScreen || matchesOuterAvail || matchesInnerAvail) && minimalBrowserChrome;
 }
 
 // shared utilities moved from listing script
@@ -1343,9 +1147,64 @@ function findPlayerContainer() {
   const video = findPrimaryVideoElement();
   if (!video) return null;
 
+  const getParents = (element) => {
+    const parents = [];
+    let current = element;
+    while (current && current.nodeType === 1) {
+      parents.push(current);
+      current = current.parentElement;
+    }
+    return parents;
+  };
+
+  const findLowestCommonAncestor = (a, b) => {
+    if (!a || !b) return null;
+    const parents = getParents(a);
+    for (const parent of parents) {
+      if (parent.contains(b)) {
+        return parent;
+      }
+    }
+    return null;
+  };
+
+  const pickBestContainerInside = (root, targetVideo) => {
+    if (!root) return null;
+
+    const selectors = [
+      '#movie_player',
+      '.html5-video-player',
+      'ytd-player',
+      'ytd-watch-flexy'
+    ];
+
+    for (const selector of selectors) {
+      const matches = root.querySelectorAll(selector);
+      for (const match of matches) {
+        if (match.contains(targetVideo)) {
+          return match;
+        }
+      }
+    }
+
+    if (root.contains(targetVideo)) {
+      return root;
+    }
+
+    return null;
+  };
+
+  const rateButtons = getRateButtons();
+  const referenceNode = rateButtons[0] || document.querySelector('ytd-watch-flexy:not([hidden])');
+  const commonRoot = findLowestCommonAncestor(video, referenceNode);
+  const commonContainer = pickBestContainerInside(commonRoot, video);
+  if (commonContainer) {
+    return commonContainer;
+  }
+
+  // Fallback: mantém a heurística antiga para cenários sem nó de referência.
   let el = video.parentElement;
   while (el && el !== document.body) {
-    // Critérios: id ou classe com 'player', ou presença de UI típica
     if (
       (el.id && el.id.includes('player')) ||
       (el.className && el.className.toString().includes('player')) ||
@@ -1355,5 +1214,6 @@ function findPlayerContainer() {
     }
     el = el.parentElement;
   }
+
   return null;
 }

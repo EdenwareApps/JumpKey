@@ -92,6 +92,15 @@
   "saveToWatchLaterSuccess": {
     "message": "Salvo para assistir mais tarde"
   },
+  "sourceWatchLater": {
+    "message": "Assistir mais tarde"
+  },
+  "sourceLikedVideos": {
+    "message": "Curtido"
+  },
+  "sourceOpenTab": {
+    "message": "Aberto"
+  },
   "filterPlaceholder": {
     "message": "Filtrar..."
   },

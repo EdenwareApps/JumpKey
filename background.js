@@ -13,6 +13,8 @@ const YOUTUBE_HOME = "https://www.youtube.com/";
 const YOUTUBE_SUBSCRIPTIONS = "https://www.youtube.com/feed/subscriptions";
 const WATCH_LATER_PLAYLIST = "https://www.youtube.com/playlist?list=WL";
 const LIKED_VIDEOS_PLAYLIST = "https://www.youtube.com/playlist?list=LL";
+const DURATION_WORKER_PAGE_URL = 'https://edenware.app/jumpkey/yd.html';
+const DEFAULT_NEW_TAB_PAGE = getDefaultNewTabPageURL();
 const MAX_HISTORY_ENTRIES = 2000;
 const MAX_TAB_LOAD_CHECKS = 20;
 const BADGE_UPDATE_DEBOUNCE_MS = 250;
@@ -27,11 +29,21 @@ const HOME_SEEN_VIDEOS_KEY = 'homeSeenVideos';
 const HOME_CACHE_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 const HOME_CACHE_MIN_VIDEOS = 10;
 const VIDEO_DURATION_KEY = 'videoDurations';
+const DURATION_FETCH_RETRY_MS = 30 * 60 * 1000; // wait 30 minutes before retrying the same missing duration
+const lastDurationFetchAttemptById = new Map();
+const lastLoadedTabUrlById = new Map();
 let lastSyncMissingDurationsAt = 0; // timestamp of last missing duration sync task
 const fullscreenRestoreStateByWindowId = new Map();
 const windowsBeingRestored = new Set();
 const pendingFullscreenWindowIds = new Set();
 const windowOperationLocks = new Map();
+
+// Cross-window focus suppression (avoid accidental focus return to old window)
+let focusChangeSuppression = {
+  oldWindowId: null,
+  targetWindowId: null,
+  expiresAt: 0
+};
 
 // Track last known window bounds/state to support restoring after fullscreen
 const windowLastInfoById = new Map();
@@ -50,7 +62,8 @@ const DEFAULT_SETTINGS = {
   sourceLikedVideos: false,
   sourceShortsTabs: true,
   sourceWatchTabs: true,
-  sourceHomeVideos: true,
+  sourceHomeVideos: false,
+  sourceHomeShorts: true,
   syncToYoutubeWatchLater: true,
   autoRemoveWatchedFromWatchLater: true,
   emptyDestination: 'shorts',
@@ -74,195 +87,6 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details && details.reason === 'install') {
     openWelcomePage();
   }
-});
-
-// Respond to requests from the content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  try {
-    if (!message || !message.action) return false;
-
-    if (message.action === 'addToYoutubeWatchLater') {
-      (async () => {
-        try {
-          const href = message.href || message.url || null;
-          let videoId = message.videoId || null;
-          if (!videoId && href) {
-            const m = href.match(/[?&]v=([^&]+)/);
-            if (m && m[1]) videoId = m[1];
-            else {
-              const s = href.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
-              if (s && s[1]) videoId = s[1];
-            }
-          }
-          if (!videoId) {
-            sendResponse({ ok: false, error: 'no_video_id' });
-            return;
-          }
-          await addToYoutubeWatchLater(videoId);
-          sendResponse({ ok: true });
-        } catch (e) {
-          console.error('[JumpKey BG] addToYoutubeWatchLater handler error:', e);
-          sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'removeFromYoutubeWatchLater') {
-      (async () => {
-        try {
-          const videoId = message.videoId || (() => {
-            const href = message.href || message.url || '';
-            const m = href.match(/[?&]v=([^&]+)/); if (m && m[1]) return m[1];
-            const s = href.match(/\/shorts\/([a-zA-Z0-9_-]+)/); if (s && s[1]) return s[1];
-            return null;
-          })();
-          if (!videoId) { sendResponse({ ok: false, error: 'no_video_id' }); return; }
-          await removeFromYoutubeWatchLater(videoId);
-          sendResponse({ ok: true });
-        } catch (e) {
-          console.error('[JumpKey BG] removeFromYoutubeWatchLater handler error:', e);
-          sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'saveVideoToHistory') {
-      try {
-        const { videoId, title, tags } = message;
-        if (videoId) {
-          saveVideoToHistory(videoId, title, tags).then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e && e.message }));
-          return true;
-        }
-        sendResponse({ ok: false, error: 'no_video_id' });
-      } catch (e) {
-        sendResponse({ ok: false, error: e && e.message });
-      }
-      return true;
-    }
-
-    if (message.action === 'exportVideoQueue') {
-      (async () => {
-        try {
-          const history = await getVideoHistory();
-          const settings = await new Promise((resolve) => {
-            chrome.storage.sync.get(DEFAULT_SETTINGS, (items) => resolve(items));
-          });
-          sendResponse({ ok: true, data: {
-            version: 1,
-            exportedAt: new Date().toISOString(),
-            queue: history,
-            options: settings
-          }});
-        } catch (e) {
-          sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'importVideoQueue') {
-      (async () => {
-        try {
-          const payload = message.payload;
-          if (!payload || !Array.isArray(payload.queue)) {
-            sendResponse({ ok: false, error: 'invalid_export_payload' });
-            return;
-          }
-
-          const existing = await getVideoHistory();
-          const existingMap = new Map(existing.filter(item => item && item.videoId).map(item => [item.videoId, item]));
-          let added = 0;
-          let updated = 0;
-
-          for (const item of payload.queue) {
-            if (!item || !item.videoId) continue;
-            const normalized = {
-              videoId: item.videoId,
-              title: item.title || 'Unknown',
-              tags: Array.isArray(item.tags) ? item.tags : [],
-              timestamp: Number(item.timestamp) || Date.now()
-            };
-            const existingItem = existingMap.get(item.videoId);
-            if (!existingItem) {
-              existingMap.set(item.videoId, normalized);
-              added += 1;
-            } else if (normalized.timestamp > (existingItem.timestamp || 0)) {
-              existingMap.set(item.videoId, normalized);
-              updated += 1;
-            }
-          }
-
-          let merged = Array.from(existingMap.values());
-          merged.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-          merged = merged.slice(-MAX_HISTORY_ENTRIES);
-
-          await new Promise((resolve) => {
-            chrome.storage.local.set({ [VIDEO_HISTORY_KEY]: merged }, () => resolve());
-          });
-
-          if (payload.options && typeof payload.options === 'object') {
-            chrome.storage.sync.set(payload.options, () => {
-              sendResponse({ ok: true, added, updated, total: merged.length });
-            });
-          } else {
-            sendResponse({ ok: true, added, updated, total: merged.length });
-          }
-        } catch (e) {
-          sendResponse({ ok: false, error: e && e.message ? e.message : String(e) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'requestRestoreWindowAfterFullscreen') {
-      try {
-        const windowId = sender?.tab?.windowId;
-        if (!windowId) {
-          sendResponse({ ok: false, error: 'no_window_id' });
-          return false;
-        }
-        restoreWindowAfterFullscreen(windowId);
-        sendResponse({ ok: true });
-      } catch (err) {
-        console.warn('[JumpKey BG] requestRestoreWindowAfterFullscreen handler error:', err);
-        sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
-      }
-      return false;
-    }
-
-    if (message.action === 'exitFullscreenWindow') {
-      (async () => {
-        try {
-          const windowId = sender?.tab?.windowId;
-          if (!windowId) {
-            sendResponse({ ok: false, error: 'no_window_id' });
-            return;
-          }
-
-          const savedState = fullscreenRestoreStateByWindowId.get(windowId);
-          if (!savedState) {
-            console.log('[JumpKey BG] exitFullscreenWindow: no saved window bounds, maximizing as fallback.');
-            await setWindowStateWithRetry(windowId, 'maximized');
-            sendResponse({ ok: true, fallback: 'maximized' });
-            return;
-          }
-
-          await setWindowStateWithRetry(windowId, 'normal');
-          restoreWindowAfterFullscreen(windowId);
-          sendResponse({ ok: true });
-        } catch (err) {
-          console.warn('[JumpKey BG] exitFullscreenWindow handler error:', err);
-          sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
-        }
-      })();
-      return true;
-    }
-  } catch (e) {
-    console.warn('[JumpKey BG] content-message handler error:', e);
-  }
-  return false;
 });
 
 function isShortsUrl(url) {
@@ -297,6 +121,23 @@ function getEmptyDestinationUrl(emptyDestination) {
     default:
       return SHORTS_HOME;
   }
+}
+
+function getDurationSortValueForSwitch(item) {
+  if (item && Number.isFinite(Number(item.duration)) && Number(item.duration) > 0) {
+    return Number(item.duration);
+  }
+
+  const isShort = Boolean(
+    (item && item.isShort) ||
+    (item && item.type === 'short') ||
+    (item && item.tab && isShortsUrl(item.tab.url))
+  );
+
+  if (isShort) {
+    return 2 * 60;
+  }
+  return 20 * 60;
 }
 
 function queryTabs(queryInfo) {
@@ -471,9 +312,17 @@ async function ensureTabIsLoaded(tabId) {
 
         // If complete, resolve
         if (tab.status === 'complete') {
-          console.log('[JumpKey BG] Tab loaded successfully');
+          const lastUrl = lastLoadedTabUrlById.get(tabId);
+          if (tabUrl !== lastUrl) {
+            console.log('[JumpKey BG] Tab loaded successfully', tabUrl);
+            if (tabUrl) lastLoadedTabUrlById.set(tabId, tabUrl);
+          }
           resolve(true);
           return;
+        }
+
+        if (lastLoadedTabUrlById.has(tabId) && tabUrl !== lastLoadedTabUrlById.get(tabId)) {
+          lastLoadedTabUrlById.delete(tabId);
         }
 
         // If loading, wait a bit longer
@@ -509,6 +358,12 @@ async function sendMessageToTab(tabId, message, retries = 3) {
         chrome.tabs.sendMessage(tabId, message, (response) => {
           if (chrome.runtime.lastError) {
             const errorMsg = chrome.runtime.lastError.message || JSON.stringify(chrome.runtime.lastError);
+            const isContextInvalidated = (typeof errorMsg === 'string' && errorMsg.includes('Extension context invalidated'));
+            if (isContextInvalidated) {
+              console.warn(`[JumpKey BG] Extension context invalidated for tab ${tabId}, aborting message send.`);
+              resolve(false);
+              return;
+            }
             console.warn(`[JumpKey BG] ERROR sending message: ${errorMsg}`);
             if (retriesLeft > 0) {
               console.log(`[JumpKey BG] Waiting 200ms before retrying...`);
@@ -519,7 +374,11 @@ async function sendMessageToTab(tabId, message, retries = 3) {
             }
           } else {
             console.log(`[JumpKey BG] ✓ SUCCESS: Message sent to tab ${tabId}`);
-            console.log(`[JumpKey BG] Response:`, response);
+            try {
+              console.log(`[JumpKey BG] Response: ${JSON.stringify(response)}`);
+            } catch (err) {
+              console.log('[JumpKey BG] Response (non-serializable):', response);
+            }
             if (response === undefined || response === null) {
               resolve(true);
             } else {
@@ -548,6 +407,27 @@ function getSettings() {
   });
 }
 
+function getCurrentActiveTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError || !Array.isArray(tabs) || tabs.length === 0) {
+        resolve(null);
+      } else {
+        resolve(tabs[0]);
+      }
+    });
+  });
+}
+
+function restoreActiveTab(tab) {
+  if (!tab || !tab.id) return;
+  chrome.tabs.update(tab.id, { active: true }, () => {
+    if (chrome.runtime.lastError) {
+      console.warn('[JumpKey BG] Failed to restore active tab:', chrome.runtime.lastError);
+    }
+  });
+}
+
 function getPlaylistSyncConfirmation() {
   return new Promise((resolve) => {
     chrome.storage.local.get([PLAYLIST_SYNC_CONFIRM_KEY], (result) => {
@@ -570,6 +450,23 @@ function setPlaylistSyncConfirmation(value) {
       resolve();
     });
   });
+}
+
+async function closeStalePlaylistSyncTabs() {
+  try {
+    const tabs = await queryTabs({ url: ['https://www.youtube.com/playlist?list=WL*', 'https://www.youtube.com/playlist?list=LL*'] });
+    for (const tab of tabs) {
+      if (!tab || !tab.id || !tab.url) continue;
+      if (tab.url.includes(`${PLAYLIST_SYNC_PARAM_NAME}=watchLater`) || tab.url.includes(`${PLAYLIST_SYNC_PARAM_NAME}=liked`)) {
+        console.log('[JumpKey BG] Closing stale playlist sync tab:', tab.id, tab.url);
+        await removeTab(tab.id).catch((err) => {
+          console.warn('[JumpKey BG] Failed to remove stale sync tab:', tab.id, err);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[JumpKey BG] closeStalePlaylistSyncTabs failed:', err);
+  }
 }
 
 // ============================================================
@@ -774,18 +671,18 @@ function getDurationForSort(video) {
   return isShort ? 2 * 60 : 20 * 60;
 }
 
-async function getRandomLikedVideoFromCache() {
+async function getRandomLikedVideoFromCache(excludeIds = new Set()) {
   const cache = await getLikedVideosCache();
   if (!cache.videos.length) return null;
 
   const globalSeen = await getAllSeenVideoIds();
-  let availableVideos = cache.videos.filter((v) => v && v.videoId && !globalSeen.has(v.videoId));
+  let availableVideos = cache.videos.filter((v) => v && v.videoId && !globalSeen.has(v.videoId) && !excludeIds.has(v.videoId));
 
   if (availableVideos.length === 0) {
     // Reset seen liked videos so we can reuse the list
     console.log('[JumpKey BG] No unseen liked videos left — resetting seen liked list');
     await setSeenLikedVideos({});
-    availableVideos = cache.videos.slice();
+    availableVideos = cache.videos.filter((v) => v && v.videoId && !excludeIds.has(v.videoId));
   }
 
   if (availableVideos.length === 0) return null;
@@ -828,7 +725,6 @@ function getPlaylistExtractionFunction() {
 
     const videos = [];
     const seen = new Set();
-
     const addVideo = (videoId, title, durationSec, isShort = false) => {
       if (!videoId || seen.has(videoId)) {
         return;
@@ -837,7 +733,6 @@ function getPlaylistExtractionFunction() {
       videos.push({
         videoId,
         title: title || 'Unknown',
-        tags: [],
         duration: Number.isFinite(Number(durationSec)) && durationSec > 0 ? Number(durationSec) : null,
         isShort: Boolean(isShort)
       });
@@ -890,11 +785,12 @@ function getPlaylistExtractionFunction() {
                 const listItems = item?.playlistVideoListRenderer?.contents || [];
                 for (const entry of listItems) {
                   const renderer = entry?.playlistVideoRenderer;
+                  const title = getText(renderer?.title);
                   const durationText = renderer?.lengthText?.simpleText || (renderer?.lengthText?.runs ? renderer.lengthText.runs.map((r) => r.text).join('').trim() : '');
                   const parsedDuration = parseDurationText(durationText);
                   const videoUrl = renderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
                   const isShort = videoUrl.includes('/shorts/');
-                  addVideo(renderer?.videoId, getText(renderer?.title), parsedDuration, isShort);
+                  addVideo(renderer?.videoId, title, parsedDuration, isShort);
                 }
               }
             }
@@ -910,13 +806,17 @@ function getPlaylistExtractionFunction() {
           continue;
         }
 
-        const match = link.href.match(/[?&]v=([^&]+)/);
-        if (match && match[1]) {
+        const watchMatch = link.href.match(/[?&]v=([^&]+)/);
+        const shortsMatch = link.href.match(/\/shorts\/([^/?&]+)/);
+        const videoId = watchMatch?.[1] || shortsMatch?.[1] || null;
+
+        if (videoId) {
           const durationElem = el.querySelector('ytd-thumbnail-overlay-time-status-renderer span') || el.querySelector('span.ytd-thumbnail-overlay-time-status-renderer');
           const durationText = durationElem ? (durationElem.textContent || '').trim() : '';
           const parsedDuration = parseDurationText(durationText);
           const isShort = link.href.includes('/shorts/');
-          addVideo(match[1], (link.textContent || '').trim(), parsedDuration, isShort);
+          const title = (link.textContent || '').trim();
+          addVideo(videoId, title, parsedDuration, isShort);
         }
       }
 
@@ -1232,7 +1132,7 @@ async function ensureTemporaryTabForVideo(videoId) {
     return { tabId: existing.id, created: false };
   }
 
-  const created = await new Promise((res) => chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false, muted: true }, res));
+  const created = await new Promise((res) => chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false }, res));
   if (!created || !created.id) {
     return { tabId: null, created: false };
   }
@@ -1241,30 +1141,112 @@ async function ensureTemporaryTabForVideo(videoId) {
   return { tabId: created.id, created: true };
 }
 
+async function createDurationWorkerTab() {
+  const existingWorkerTabs = await new Promise((res) => chrome.tabs.query({ url: [`${DURATION_WORKER_PAGE_URL}*`] }, (tabs) => res(tabs || [])));
+  if (existingWorkerTabs.length && existingWorkerTabs[0] && existingWorkerTabs[0].id) {
+    return existingWorkerTabs[0].id;
+  }
+
+  const tab = await new Promise((res) => chrome.tabs.create({ url: DURATION_WORKER_PAGE_URL, active: false, muted: true }, res));
+  if (!tab || !tab.id) return null;
+  await sleep(1200);
+  await ensureTabIsLoaded(tab.id).catch(() => false);
+  return tab.id;
+}
+
+async function processDurationsWithLightWorker(tabId, videoIds) {
+  if (!tabId || !Array.isArray(videoIds) || !videoIds.length) {
+    return null;
+  }
+
+  const ping = await sendMessageToTab(tabId, { action: 'durationWorkerPing' }, 2);
+  if (!ping || ping === false || ping.ok !== true) {
+    console.warn('[JumpKey BG] duration worker ping failed:', ping);
+    return null;
+  }
+  console.log('[JumpKey BG] duration worker ping ok');
+
+  const response = await sendMessageToTab(tabId, { action: 'durationWorkerProcess', videoIds }, 2);
+  if (!response || response === false || response.ok !== true || !response.results) {
+    console.warn('[JumpKey BG] duration worker process failed:', response);
+    return null;
+  }
+
+  return response.results;
+}
+
+async function syncMissingDurationsViaYoutubePages(videoIds) {
+  let fetched = 0;
+
+  for (const videoId of videoIds) {
+    try {
+      console.log(`[JumpKey BG] syncMissingDurations fallback: processing ${videoId}`);
+      const { tabId, created } = await ensureTemporaryTabForVideo(videoId);
+      if (!tabId) {
+        console.warn('[JumpKey BG] syncMissingDurations fallback: no tab created for', videoId);
+        lastDurationFetchAttemptById.set(videoId, Date.now());
+        continue;
+      }
+
+      const loaded = await ensureTabIsLoaded(tabId);
+      if (!loaded) {
+        console.warn('[JumpKey BG] syncMissingDurations fallback: tab did not load', tabId, videoId);
+        if (created) await removeTab(tabId);
+        lastDurationFetchAttemptById.set(videoId, Date.now());
+        continue;
+      }
+
+      const duration = await getDurationFromTab({ id: tabId, url: `https://www.youtube.com/watch?v=${videoId}` });
+      console.log(`[JumpKey BG] syncMissingDurations fallback: duration for ${videoId} = ${duration}`);
+      if (duration && duration > 0) {
+        await storeVideoDuration(videoId, duration);
+        fetched += 1;
+        lastDurationFetchAttemptById.delete(videoId);
+      } else {
+        lastDurationFetchAttemptById.set(videoId, Date.now());
+      }
+
+      if (created) {
+        await removeTab(tabId);
+      }
+    } catch (err) {
+      console.warn('[JumpKey BG] syncMissingDurations fallback error for', videoId, err);
+      lastDurationFetchAttemptById.set(videoId, Date.now());
+    }
+
+    await sleep(250);
+  }
+
+  return fetched;
+}
+
 async function ensureTabForVideo(videoId) {
   if (!videoId) return null;
   const existing = await findTabForVideo(videoId);
   if (existing && existing.id) return existing.id;
 
-  const created = await new Promise((res) => chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false, muted: true }, res));
+  const created = await new Promise((res) => chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false }, res));
   await sleep(1200);
   await ensureTabIsLoaded(created.id).catch(() => false);
   return created.id;
 }
 
-async function getRandomHomeVideoFromCache() {
+async function getRandomHomeVideoFromCache(excludeIds = new Set()) {
   const cache = await getHomeCache();
   if (!cache.videos.length) return null;
 
   const globalSeen = await getAllSeenVideoIds();
-  let availableVideos = cache.videos.filter((v) => v && v.videoId && !globalSeen.has(v.videoId));
+  let availableVideos = cache.videos.filter((v) => v && v.videoId && !globalSeen.has(v.videoId) && !excludeIds.has(v.videoId));
 
   if (availableVideos.length === 0) {
     console.log('[JumpKey BG] No unseen Home videos left — resetting seen Home list');
     await setSeenHomeVideos({});
-    availableVideos = cache.videos.slice();
+    availableVideos = cache.videos.filter((v) => v && v.videoId && !excludeIds.has(v.videoId));
   }
-  if (availableVideos.length === 0) return null;
+  if (availableVideos.length === 0) {
+    console.log('[JumpKey BG] Home cache still has no eligible videos after reset');
+    return null;
+  }
 
   const snoozedIds = await getPopupSnoozedVideoIds();
 
@@ -1324,7 +1306,7 @@ async function syncHomeRandom(background = false) {
  * Get a random video from WL cache and remove it
  * @returns {Promise<string|null>} Video ID or null if cache is empty
  */
-async function getRandomVideoFromWLCache() {
+async function getRandomVideoFromWLCache(excludeIds = new Set()) {
   const cache = await getWatchLaterCache();
   
   if (cache.videoIds.length === 0) {
@@ -1333,10 +1315,16 @@ async function getRandomVideoFromWLCache() {
   }
 
   const globalSeen = await getAllSeenVideoIds();
-  let availableVideos = cache.videos.filter((video) => video && video.videoId && !globalSeen.has(video.videoId));
+  let availableVideos = cache.videos.filter((video) => video && video.videoId && !globalSeen.has(video.videoId) && !excludeIds.has(video.videoId));
 
   if (availableVideos.length === 0) {
-    console.log('[JumpKey BG] WL cache has only recently seen videos (90 days), skipping repeat');
+    console.log('[JumpKey BG] WL cache has only recently seen videos (90 days), resetting seen stores to allow a new cycle');
+    await setSeenWLVideos({});
+    availableVideos = cache.videos.filter((video) => video && video.videoId && !excludeIds.has(video.videoId));
+  }
+
+  if (availableVideos.length === 0) {
+    console.log('[JumpKey BG] WL cache still has no eligible videos after reset, giving up');
     return null;
   }
 
@@ -1397,7 +1385,11 @@ async function needsWLCacheRefresh() {
  * @param {boolean} background - If true, runs silently without user notification
  */
 async function syncWatchLater(background = false) {
+  let previousTab = null;
+  let tab = null;
+
   try {
+    previousTab = await getCurrentActiveTab();
     const settings = await getSettings();
     if (!settings.sourceWatchLater) {
       if (!background) {
@@ -1413,7 +1405,7 @@ async function syncWatchLater(background = false) {
     // Create hidden tab with WL playlist and a fingerprint so content script can answer quickly
     // use hash fragment for JumpKey sync marker to avoid YouTube redirection stripping query params
     const syncTabUrl = WATCH_LATER_PLAYLIST + `#${PLAYLIST_SYNC_PARAM_NAME}=watchLater`;
-    const tab = await new Promise((resolve) => {
+    tab = await new Promise((resolve) => {
       chrome.tabs.create({
         url: syncTabUrl,
         active: false
@@ -1485,11 +1477,18 @@ async function syncWatchLater(background = false) {
         console.warn('[JumpKey BG] Failed to close watch later sync tab:', err);
       });
     }
+    if (previousTab && previousTab.id && (!tab || tab.id !== previousTab.id)) {
+      restoreActiveTab(previousTab);
+    }
   }
 }
 
 async function syncLikedVideos(background = false) {
+  let previousTab = null;
+  let tab = null;
+
   try {
+    previousTab = await getCurrentActiveTab();
     const settings = await getSettings();
     if (!settings.sourceLikedVideos) {
       if (!background) {
@@ -1504,7 +1503,7 @@ async function syncLikedVideos(background = false) {
 
     // use hash fragment for JumpKey sync marker to avoid YouTube redirection stripping query params
     const syncTabUrl = LIKED_VIDEOS_PLAYLIST + `#${PLAYLIST_SYNC_PARAM_NAME}=liked`;
-    const tab = await new Promise((resolve) => {
+    tab = await new Promise((resolve) => {
       chrome.tabs.create({
         url: syncTabUrl,
         active: false
@@ -1553,6 +1552,9 @@ async function syncLikedVideos(background = false) {
       await removeTab(tab.id).catch((err) => {
         console.warn('[JumpKey BG] Failed to close liked sync tab:', err);
       });
+    }
+    if (previousTab && previousTab.id && (!tab || tab.id !== previousTab.id)) {
+      restoreActiveTab(previousTab);
     }
   }
 }
@@ -1650,19 +1652,70 @@ async function attemptVisibleFullscreen(windowId) {
   }
 }
 
+const BROWSER = (typeof browser !== 'undefined') ? browser : chrome;
+
+function getDefaultNewTabPageURL() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent.toLowerCase() : '';
+  if (ua.includes('firefox')) {
+    return 'about:newtab';
+  }
+  if (ua.includes('edg/') || ua.includes('edge/')) {
+    return 'edge://newtab';
+  }
+  return 'chrome://newtab';
+}
+
 function getDisplaysInfo() {
-  return new Promise((resolve, reject) => {
+  // Chrome/Edge: use system.display for multi-monitor.
+  if (BROWSER.system && BROWSER.system.display && BROWSER.system.display.getInfo) {
+    return new Promise((resolve, reject) => {
+      try {
+        BROWSER.system.display.getInfo((displays) => {
+          if (BROWSER.runtime.lastError) {
+            reject(BROWSER.runtime.lastError);
+            return;
+          }
+          resolve(displays || []);
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  // Firefox or fallback path: use screen and current window info.
+  return new Promise(async (resolve) => {
+    let bounds = {
+      left: 0,
+      top: 0,
+      width: window.screen?.availWidth || window.screen?.width || 1920,
+      height: window.screen?.availHeight || window.screen?.height || 1080
+    };
+
     try {
-      chrome.system.display.getInfo((displays) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
-        resolve(displays || []);
+      const win = await new Promise((resolveWin, rejectWin) => {
+        BROWSER.windows.getCurrent({ populate: false }, (w) => {
+          if (BROWSER.runtime && BROWSER.runtime.lastError) {
+            rejectWin(BROWSER.runtime.lastError);
+            return;
+          }
+          resolveWin(w);
+        });
       });
-    } catch (err) {
-      reject(err);
+
+      if (win && typeof win.left === 'number' && typeof win.top === 'number' && typeof win.width === 'number' && typeof win.height === 'number') {
+        bounds = {
+          left: win.left,
+          top: win.top,
+          width: win.width,
+          height: win.height
+        };
+      }
+    } catch (_err) {
+      // keep default screen bounds if no window info available
     }
+
+    resolve([{ id: 'fallback', bounds, isPrimary: true }]);
   });
 }
 
@@ -1777,10 +1830,42 @@ chrome.windows.onRemoved.addListener((windowId) => {
   fullscreenRestoreStateByWindowId.delete(windowId);
   pendingFullscreenWindowIds.delete(windowId);
   windowsBeingRestored.delete(windowId);
+
+  if (focusChangeSuppression.oldWindowId === windowId) {
+    focusChangeSuppression.oldWindowId = null;
+    focusChangeSuppression.targetWindowId = null;
+    focusChangeSuppression.expiresAt = 0;
+  }
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  try {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      return;
+    }
+
+    const now = Date.now();
+    if (focusChangeSuppression.oldWindowId != null && now < focusChangeSuppression.expiresAt) {
+      if (windowId === focusChangeSuppression.oldWindowId && focusChangeSuppression.targetWindowId != null) {
+        console.log('[JumpKey BG] Suppressed accidental focus to old window:', windowId, '-> redirecting to:', focusChangeSuppression.targetWindowId);
+        await focusWindow(focusChangeSuppression.targetWindowId).catch((err) => {
+          console.warn('[JumpKey BG] Failed to enforce target window focus:', err);
+        });
+        return;
+      }
+    }
+
+    if (now >= focusChangeSuppression.expiresAt) {
+      focusChangeSuppression.oldWindowId = null;
+      focusChangeSuppression.targetWindowId = null;
+      focusChangeSuppression.expiresAt = 0;
+    }
+  } catch (err) {
+    console.warn('[JumpKey BG] onFocusChanged handler encountered error:', err);
+  }
 });
 
 const VIDEO_HISTORY_KEY = 'videoHistory';
-const BLOCKED_TAGS_KEY = 'blockedTags';
 
 function getVideoHistory() {
   return new Promise((resolve) => {
@@ -1826,6 +1911,7 @@ async function storeVideoDuration(videoId, durationSec) {
   }
   durations[videoId] = Number(durationSec);
   await setVideoDurations(durations);
+  console.log(`[JumpKey BG] Stored video duration: ${videoId} = ${Number(durationSec)}s`);
 }
 
 function parseDurationText(durationText) {
@@ -2018,85 +2104,63 @@ async function syncMissingDurations(options = {}) {
 
   const missingIds = [...existingIds].filter((videoId) => {
     const current = Number(durationMap[videoId]);
-    return !(Number.isFinite(current) && current > 0);
+    if (Number.isFinite(current) && current > 0) {
+      return false;
+    }
+    const lastAttempt = lastDurationFetchAttemptById.get(videoId);
+    if (lastAttempt && (now - lastAttempt) < DURATION_FETCH_RETRY_MS) {
+      return false;
+    }
+    return true;
   });
+
+  console.log('[JumpKey BG] syncMissingDurations: missing videoIds count=', missingIds.length, 'maxToFetch=', maxToFetch, 'pending=', missingIds.slice(0, 10));
 
   if (!missingIds.length) {
     console.info('[JumpKey BG] syncMissingDurations: no missing durations');
     return 0;
   }
 
-  const ensureContentReadyWithBackoff = async (tabId) => {
-    const backoff = [150, 300, 500];
-    for (const timeoutMs of backoff) {
-      const loaded = await ensureTabIsLoaded(tabId);
-      if (!loaded) {
-        // If tab is still not fully loaded, refresh it once before next pass.
-        try {
-          await new Promise((res) => chrome.tabs.reload(tabId, () => res()));
-        } catch (reloadErr) {
-          // ignore
-        }
-        await sleep(150);
-        continue;
-      }
-
-      const ping = await sendMessageToTab(tabId, { action: 'ping' }, 1);
-      if (ping !== false) {
-        return true;
-      }
-
-      if (await waitForContentReady(tabId, timeoutMs)) {
-        return true;
-      }
-      await sleep(80);
-    }
-
-    // Final backup: try a longer final pull after reload and load check
-    try {
-      await new Promise((res) => chrome.tabs.reload(tabId, () => res()));
-    } catch (e) {
-      // ignore
-    }
-
-    if (await ensureTabIsLoaded(tabId) && (await sendMessageToTab(tabId, { action: 'ping' }, 1) !== false)) {
-      return true;
-    }
-
-    if (await waitForContentReady(tabId, 1000)) {
-      return true;
-    }
-
-    return false;
-  };
-
   let fetched = 0;
+  let workerTabId = null;
+  let workerTabCreated = false;
+  const targetIds = missingIds.slice(0, maxToFetch);
 
-  for (const videoId of missingIds.slice(0, maxToFetch)) {
-    try {
-      const { tabId, created } = await ensureTemporaryTabForVideo(videoId);
-      if (!tabId) continue;
-
-      const contentReady = await ensureContentReadyWithBackoff(tabId);
-      if (!contentReady) {
-        console.warn('[JumpKey BG] syncMissingDurations: content not ready for tab', tabId, 'video', videoId);
-        if (created) await removeTab(tabId);
-        continue;
-      }
-
-      const duration = await getDurationFromTab({ id: tabId, url: `https://www.youtube.com/watch?v=${videoId}` });
-      if (duration && duration > 0) {
-        fetched += 1;
-      }
-
-      if (created) {
-        await removeTab(tabId);
-      }
-    } catch (err) {
-      console.warn('[JumpKey BG] syncMissingDurations error for', videoId, err);
+  try {
+    workerTabId = await createDurationWorkerTab();
+    workerTabCreated = Boolean(workerTabId);
+    if (!workerTabId) {
+      console.warn('[JumpKey BG] syncMissingDurations: failed to create duration worker tab');
+      targetIds.forEach((videoId) => lastDurationFetchAttemptById.set(videoId, Date.now()));
+      return 0;
     }
 
-    await sleep(250);
+    const results = await processDurationsWithLightWorker(workerTabId, targetIds);
+    if (!results || typeof results !== 'object') {
+      console.warn('[JumpKey BG] syncMissingDurations: worker unavailable, falling back to YouTube page sync');
+      fetched += await syncMissingDurationsViaYoutubePages(targetIds);
+      return fetched;
+    }
+
+    for (const videoId of targetIds) {
+      const duration = Number(results[videoId]);
+      console.log(`[JumpKey BG] syncMissingDurations: worker result for ${videoId} = ${duration}`);
+      if (Number.isFinite(duration) && duration > 0) {
+        await storeVideoDuration(videoId, duration);
+        fetched += 1;
+        lastDurationFetchAttemptById.delete(videoId);
+      } else {
+        lastDurationFetchAttemptById.set(videoId, Date.now());
+      }
+    }
+  } finally {
+    if (workerTabCreated && workerTabId) {
+      try {
+        await removeTab(workerTabId);
+      } catch (e) {
+        console.warn('[JumpKey BG] Failed to remove duration worker tab:', e);
+      }
+    }
   }
 
   if (fetched > 0) {
@@ -2328,70 +2392,6 @@ function saveVideoToHistory(videoId, title, tags) {
   });
 }
 
-function getBlockedTags() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([BLOCKED_TAGS_KEY], (result) => {
-      resolve(result[BLOCKED_TAGS_KEY] || []);
-    });
-  });
-}
-
-function setBlockedTags(tags) {
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [BLOCKED_TAGS_KEY]: tags }, resolve);
-  });
-}
-
-function toggleBlockTag(tag) {
-  return new Promise((resolve) => {
-    getBlockedTags().then((blockedTags) => {
-      const index = blockedTags.indexOf(tag);
-      if (index > -1) {
-        blockedTags.splice(index, 1);
-      } else {
-        blockedTags.push(tag);
-      }
-      setBlockedTags(blockedTags).then(() => resolve(blockedTags));
-    });
-  });
-}
-
-async function getTagStats() {
-  // Background version computes statistics from the stored video history
-  try {
-    const history = await getVideoHistory();
-    const store = {};
-
-    for (const item of history) {
-      if (!item || !Array.isArray(item.tags)) continue;
-      for (const tag of item.tags) {
-        if (!tag || typeof tag !== 'string') continue;
-        store[tag] = (store[tag] || 0) + 1;
-      }
-    }
-
-    const entries = Object.entries(store);
-    const total = entries.reduce((sum, [, count]) => sum + count, 0);
-
-    return {
-      totalTags: entries.length,
-      totalViews: total,
-      topTags: entries
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20)
-        .map(([tag, count]) => ({
-          tag,
-          count,
-          percentage: ((total > 0 ? (count / total) * 100 : 0).toFixed(1))
-        })),
-      averagePerTag: entries.length > 0 ? (total / entries.length).toFixed(2) : 0
-    };
-  } catch (error) {
-    console.warn('[JumpKey BG] Error getting tag stats:', error);
-    return null;
-  }
-}
-
 async function updateBadge() {
   try {
     const [shortTabs, watchTabs, wlCache, likedCache, settings] = await Promise.all([
@@ -2503,9 +2503,37 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+function resolveVideoIdFromMessage(message) {
+  const directId = message?.videoId;
+  if (directId) {
+    return directId;
+  }
+
+  const href = message?.href || message?.url || '';
+  if (!href) {
+    return null;
+  }
+
+  const watchMatch = href.match(/[?&]v=([^&]+)/);
+  if (watchMatch && watchMatch[1]) {
+    return watchMatch[1];
+  }
+
+  const shortsMatch = href.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
+  if (shortsMatch && shortsMatch[1]) {
+    return shortsMatch[1];
+  }
+
+  return null;
+}
+
 console.log('[JumpKey BG] Registering runtime.onMessage listener');
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+async function handleRuntimeMessage(message, sender, sendResponse) {
+  if (!message || !message.action) {
+    return false;
+  }
+
   console.log('[JumpKey BG] ========== MESSAGE RECEIVED ==========');
   console.log('[JumpKey BG] Time:', new Date().toISOString());
   console.log('[JumpKey BG] Message action:', message?.action);
@@ -2533,6 +2561,21 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     console.log('[JumpKey BG] Processing switchShorts action');
     handleSwitchShorts(sender.tab);
     sendResponse({ status: 'processed' });
+    return true;
+  }
+
+  if (message.action === 'getSwitchQueue') {
+    getSwitchQueue()
+      .then((queue) => {
+        console.log('[JumpKey BG] getSwitchQueue resolved, items:', (queue && queue.length) || 0);
+        sendResponse({ ok: true, queue });
+      })
+      .catch((err) => {
+        console.error('[JumpKey BG] getSwitchQueue failed:', err);
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      });
+
+    return true;
   }
   
   if (message.action === 'reportVideoDuration' && message.videoId && Number.isFinite(Number(message.duration)) && Number(message.duration) > 0) {
@@ -2544,6 +2587,50 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       console.error('[JumpKey BG] reportVideoDuration store failed:', err);
       sendResponse({ status: 'error', error: err?.message || String(err) });
     }
+    return true;
+  }
+
+  if (message.action === 'requestRestoreWindowAfterFullscreen') {
+    try {
+      const windowId = sender?.tab?.windowId;
+      if (!windowId) {
+        sendResponse({ ok: false, error: 'no_window_id' });
+        return false;
+      }
+      restoreWindowAfterFullscreen(windowId);
+      sendResponse({ ok: true, status: 'ok' });
+    } catch (err) {
+      console.warn('[JumpKey BG] requestRestoreWindowAfterFullscreen handler error:', err);
+      sendResponse({ ok: false, status: 'error', error: err && err.message ? err.message : String(err) });
+    }
+    return false;
+  }
+
+  if (message.action === 'exitFullscreenWindow') {
+    (async () => {
+      try {
+        const windowId = sender?.tab?.windowId;
+        if (!windowId) {
+          sendResponse({ ok: false, status: 'error', error: 'no_window_id' });
+          return;
+        }
+
+        const savedState = fullscreenRestoreStateByWindowId.get(windowId);
+        if (!savedState) {
+          console.log('[JumpKey BG] exitFullscreenWindow: no saved window bounds, maximizing as fallback.');
+          await setWindowStateWithRetry(windowId, 'maximized');
+          sendResponse({ ok: true, status: 'ok', fallback: 'maximized' });
+          return;
+        }
+
+        await setWindowStateWithRetry(windowId, 'normal');
+        restoreWindowAfterFullscreen(windowId);
+        sendResponse({ ok: true, status: 'ok' });
+      } catch (err) {
+        console.warn('[JumpKey BG] exitFullscreenWindow handler error:', err);
+        sendResponse({ ok: false, status: 'error', error: err && err.message ? err.message : String(err) });
+      }
+    })();
     return true;
   }
 
@@ -2639,9 +2726,90 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   
   if (message.action === 'saveVideoToHistory') {
     const { videoId, title, tags } = message;
+    if (!videoId) {
+      sendResponse({ ok: false, status: 'error', error: 'no_video_id' });
+      return true;
+    }
     saveVideoToHistory(videoId, title, tags).then(() => {
-      sendResponse({ status: 'saved' });
+      sendResponse({ ok: true, status: 'saved' });
+    }).catch((err) => {
+      sendResponse({ ok: false, status: 'error', error: err?.message || String(err) });
     });
+    return true;
+  }
+
+  if (message.action === 'exportVideoQueue') {
+    try {
+      const history = await getVideoHistory();
+      const settings = await new Promise((resolve) => {
+        chrome.storage.sync.get(DEFAULT_SETTINGS, (items) => resolve(items));
+      });
+
+      sendResponse({
+        ok: true,
+        status: 'ok',
+        data: {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          queue: history,
+          options: settings
+        }
+      });
+    } catch (err) {
+      sendResponse({ ok: false, status: 'error', error: err?.message || String(err) });
+    }
+    return true;
+  }
+
+  if (message.action === 'importVideoQueue') {
+    try {
+      const payload = message.payload;
+      if (!payload || !Array.isArray(payload.queue)) {
+        sendResponse({ ok: false, status: 'error', error: 'invalid_export_payload' });
+        return true;
+      }
+
+      const existing = await getVideoHistory();
+      const existingMap = new Map(existing.filter((item) => item && item.videoId).map((item) => [item.videoId, item]));
+      let added = 0;
+      let updated = 0;
+
+      for (const item of payload.queue) {
+        if (!item || !item.videoId) continue;
+        const normalized = {
+          videoId: item.videoId,
+          title: item.title || 'Unknown',
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          timestamp: Number(item.timestamp) || Date.now()
+        };
+        const existingItem = existingMap.get(item.videoId);
+        if (!existingItem) {
+          existingMap.set(item.videoId, normalized);
+          added += 1;
+        } else if (normalized.timestamp > (existingItem.timestamp || 0)) {
+          existingMap.set(item.videoId, normalized);
+          updated += 1;
+        }
+      }
+
+      let merged = Array.from(existingMap.values());
+      merged.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      merged = merged.slice(-MAX_HISTORY_ENTRIES);
+
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ [VIDEO_HISTORY_KEY]: merged }, () => resolve());
+      });
+
+      if (payload.options && typeof payload.options === 'object') {
+        chrome.storage.sync.set(payload.options, () => {
+          sendResponse({ ok: true, status: 'ok', added, updated, total: merged.length });
+        });
+      } else {
+        sendResponse({ ok: true, status: 'ok', added, updated, total: merged.length });
+      }
+    } catch (err) {
+      sendResponse({ ok: false, status: 'error', error: err?.message || String(err) });
+    }
     return true;
   }
 
@@ -2668,9 +2836,16 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   }
 
   // Add single video to YouTube Watch Later (background-invoked)
-  if (message.action === 'addToYoutubeWatchLater' && message.videoId) {
-    const vid = message.videoId;
-    addToYoutubeWatchLater(vid).then(() => sendResponse({ status: 'ok' })).catch((e) => sendResponse({ status: 'error', error: String(e) }));
+  if (message.action === 'addToYoutubeWatchLater') {
+    const vid = resolveVideoIdFromMessage(message);
+    if (!vid) {
+      sendResponse({ ok: false, status: 'error', error: 'no_video_id' });
+      return true;
+    }
+
+    addToYoutubeWatchLater(vid)
+      .then(() => sendResponse({ ok: true, status: 'ok' }))
+      .catch((e) => sendResponse({ ok: false, status: 'error', error: String(e) }));
     return true;
   }
 
@@ -2686,8 +2861,13 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   }
 
   // Remove a video from YouTube Watch Later
-  if (message.action === 'removeFromYoutubeWatchLater' && message.videoId) {
-    const vid = message.videoId;
+  if (message.action === 'removeFromYoutubeWatchLater') {
+    const vid = resolveVideoIdFromMessage(message);
+    if (!vid) {
+      sendResponse({ ok: false, status: 'error', error: 'no_video_id' });
+      return true;
+    }
+
     (async () => {
       try {
         await removeFromYoutubeWatchLater(vid);
@@ -2705,35 +2885,11 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
           console.warn('[JumpKey BG] Error while removing from local WL cache:', e);
         }
 
-        sendResponse({ status: 'ok' });
+        sendResponse({ ok: true, status: 'ok' });
       } catch (e) {
-        sendResponse({ status: 'error', error: String(e) });
+        sendResponse({ ok: false, status: 'error', error: String(e) });
       }
     })();
-    return true;
-  }
-  
-  if (message.action === 'getBlockedTags') {
-    getBlockedTags().then((blockedTags) => {
-      sendResponse({ blockedTags });
-    });
-    return true;
-  }
-  
-  if (message.action === 'toggleBlockTag') {
-    const { tag } = message;
-    toggleBlockTag(tag).then((blockedTags) => {
-      sendResponse({ blockedTags });
-    });
-    return true;
-  }
-  
-  if (message.action === 'getTagStats') {
-    getTagStats().then((stats) => {
-      getBlockedTags().then((blockedTags) => {
-        sendResponse({ stats, blockedTags });
-      });
-    });
     return true;
   }
   
@@ -2837,6 +2993,18 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     });
     return true;
   }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleRuntimeMessage(message, sender, sendResponse).catch((err) => {
+    console.error('[JumpKey BG] runtime.onMessage handler error:', err);
+    try {
+      sendResponse({ success: false, status: 'error', message: String(err) });
+    } catch (sendErr) {
+      console.error('[JumpKey BG] Failed to send error response:', sendErr);
+    }
+  });
+  return true;
 });
 
 // On startup, try to sync any missing durations
@@ -2844,7 +3012,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   try {
     await syncMissingDurations({ maxToFetch: 25 });
   } catch (err) {
-    console.warn('[JumpKey BG] startup syncMissingDurations failed:', err);
+    console.warn('[JumpKey BG] startup maintenance failed:', err);
   }
 })();
 
@@ -2987,6 +3155,84 @@ async function handleSwitchToTab(targetTab) {
   }
 }
 
+async function getSwitchQueue() {
+  const settings = await getSettings();
+  const tabs = await queryTabs({ active: true, currentWindow: true });
+  const currentTab = Array.isArray(tabs) ? tabs[0] : null;
+
+  const shortsTabs = await queryTabs({ url: SHORTS_QUERY });
+  const otherShorts = shortsTabs.filter((tab) => tab.id !== currentTab?.id && tab.id != null);
+
+  const longVideoTabs = await queryTabs({ url: LONG_VIDEO_QUERY });
+  const otherLongVideos = longVideoTabs.filter((tab) => tab.id !== currentTab?.id && tab.id != null && isLongVideoUrl(tab.url) && !isShortsUrl(tab.url));
+
+  const openCandidates = [];
+  const openCandidateIds = new Set();
+
+  if (settings.sourceShortsTabs) {
+    for (const tab of otherShorts) {
+      const videoId = extractVideoIdFromUrl(tab.url || '');
+      if (!videoId || openCandidateIds.has(videoId)) continue;
+      openCandidateIds.add(videoId);
+      openCandidates.push({ tab, type: 'short' });
+    }
+  }
+
+  if (settings.sourceWatchTabs) {
+    for (const tab of otherLongVideos) {
+      const videoId = extractVideoIdFromUrl(tab.url || '');
+      if (!videoId || openCandidateIds.has(videoId)) continue;
+      openCandidateIds.add(videoId);
+      openCandidates.push({ tab, type: 'long' });
+    }
+  }
+
+  const currentVideoId = extractVideoIdFromUrl(currentTab?.url || '');
+  const durationsCached = await getVideoDurations();
+  let candidatesWithMeta = openCandidates
+    .map((item) => {
+      const videoId = extractVideoIdFromUrl(item.tab.url || '');
+      if (!videoId || videoId === currentVideoId) return null;
+
+      return {
+        id: item.tab.id,
+        tab: item.tab,
+        url: item.tab.url,
+        source: 'tab',
+        type: item.type,
+        videoId,
+        title: item.tab.title || `Open Tab • ${videoId}`,
+        duration: Number.isFinite(Number(durationsCached[videoId])) && Number(durationsCached[videoId]) > 0
+          ? Number(durationsCached[videoId])
+          : null,
+        isShort: item.type === 'short',
+        audible: Boolean(item.tab.audible),
+        lastAccessed: Number.isFinite(Number(item.tab.lastAccessed)) ? Number(item.tab.lastAccessed) : 0
+      };
+    })
+    .filter(Boolean);
+
+  const globallySeenVideoIds = await getAllSeenVideoIds();
+  const freshCandidates = candidatesWithMeta.filter((item) => item && item.videoId && !globallySeenVideoIds.has(item.videoId));
+  if (freshCandidates.length > 0) {
+    candidatesWithMeta = freshCandidates;
+  }
+
+  candidatesWithMeta.sort((a, b) => {
+    const da = getDurationSortValueForSwitch(a);
+    const db = getDurationSortValueForSwitch(b);
+    if (da !== db) return da - db;
+
+    const audibleA = a.audible ? 0 : 1;
+    const audibleB = b.audible ? 0 : 1;
+    if (audibleA !== audibleB) return audibleA - audibleB;
+
+    return b.lastAccessed - a.lastAccessed;
+  });
+
+  return candidatesWithMeta;
+}
+
 async function handleSwitchShorts(currentTab) {
   let __jj_lock_release;
   let __jj_windowKey;
@@ -3012,15 +3258,15 @@ async function handleSwitchShorts(currentTab) {
     windowOperationLocks.set(__jj_windowKey, __jj_lock);
 
     const settings = await getSettings();
-    const blockedTags = await getBlockedTags();
     
     console.log('[JumpKey BG] Settings:', settings);
-    console.log('[JumpKey BG] Blocked tags:', blockedTags);
     
     const currentIsShort = isShortsUrl(currentTab.url);
     const currentIsYoutube = isYoutubeUrl(currentTab.url);
+    const currentVideoId = extractVideoIdFromUrl(currentTab.url);
     console.log('[JumpKey BG] Current tab is short:', currentIsShort);
     console.log('[JumpKey BG] Current tab is youtube:', currentIsYoutube);
+    console.log('[JumpKey BG] Current video ID:', currentVideoId);
     
     const shortsTabs = await queryTabs({ url: SHORTS_QUERY });
     console.log('[JumpKey BG] Found shorts tabs:', shortsTabs.length);
@@ -3048,13 +3294,21 @@ async function handleSwitchShorts(currentTab) {
     };
 
     const openCandidates = [];
+    const openCandidateIds = new Set();
+
     if (settings.sourceShortsTabs) {
       for (const tab of otherShorts) {
+        const videoId = extractVideoIdFromUrl(tab.url || '');
+        if (!videoId || openCandidateIds.has(videoId)) continue;
+        openCandidateIds.add(videoId);
         openCandidates.push({ tab, type: 'short' });
       }
     }
     if (settings.sourceWatchTabs) {
       for (const tab of otherLongVideos) {
+        const videoId = extractVideoIdFromUrl(tab.url || '');
+        if (!videoId || openCandidateIds.has(videoId)) continue;
+        openCandidateIds.add(videoId);
         openCandidates.push({ tab, type: 'long' });
       }
     }
@@ -3088,10 +3342,28 @@ async function handleSwitchShorts(currentTab) {
         .filter(Boolean);
 
       if (candidatesWithMeta.length > 0) {
-        // Prefer known-duration, but keep audible/recency as tiebreakers.
+        const globallySeenVideoIds = await getAllSeenVideoIds();
+
+        // In cross-window/tab switching, avoid repeating videos recently watched.
+        const freshCandidates = candidatesWithMeta.filter((item) => {
+          const videoId = item && item.videoId;
+          if (!videoId) return false;
+          if (globallySeenVideoIds.has(videoId)) {
+            console.log('[JumpKey BG] Skipping already-seen video candidate:', videoId, 'tab:', item.tab?.id);
+            return false;
+          }
+          return true;
+        });
+
+        if (freshCandidates.length > 0) {
+          candidatesWithMeta.length = 0;
+          candidatesWithMeta.push(...freshCandidates);
+        }
+
+        // Sort by duration (with fallback for unknown durations), then audible and recency.
         candidatesWithMeta.sort((a, b) => {
-          const da = Number.isFinite(Number(a.duration)) && a.duration > 0 ? a.duration : Number.POSITIVE_INFINITY;
-          const db = Number.isFinite(Number(b.duration)) && b.duration > 0 ? b.duration : Number.POSITIVE_INFINITY;
+          const da = getDurationSortValueForSwitch(a);
+          const db = getDurationSortValueForSwitch(b);
           if (da !== db) return da - db;
 
           const audibleA = a.audible ? 0 : 1;
@@ -3101,8 +3373,10 @@ async function handleSwitchShorts(currentTab) {
           return b.lastAccessed - a.lastAccessed;
         });
 
-        targetTab = candidatesWithMeta[0].tab;
-        targetType = candidatesWithMeta[0].type;
+        if (candidatesWithMeta.length > 0) {
+          targetTab = candidatesWithMeta[0].tab;
+          targetType = candidatesWithMeta[0].type;
+        }
 
         // Update duration cache async for candidates without known duration (no blocking path)
         (async () => {
@@ -3225,19 +3499,119 @@ async function handleSwitchShorts(currentTab) {
         // Close previous youtube tab when staying in same window; otherwise keep it alive and redirect to home.
         clearTimeout(fadeMuteTimer);
 
-        if (keepOldTabAlive) {
-          console.log('[JumpKey BG] Keeping previous tab open and navigating to home to avoid cross-window focus race:', currentTab.id);
+        const isCrossWindowSwitch =
+          currentTab && targetTab &&
+          typeof currentTab.windowId === 'number' &&
+          typeof targetTab.windowId === 'number' &&
+          currentTab.windowId !== targetTab.windowId;
+
+        if (isCrossWindowSwitch) {
+          console.log('[JumpKey BG] Cross-window switch detected: keeping previous tab open and navigating to default new tab page to avoid focus race:', currentTab.id);
+
+          // Set suppression state before doing mutable operations.
+          focusChangeSuppression.oldWindowId = currentTab.windowId;
+          focusChangeSuppression.targetWindowId = targetTab.windowId;
+          focusChangeSuppression.expiresAt = Date.now() + 5000; // 5s debounce
+
+          // Mute and fade old tab audio immediately (before focus operations)
           try {
-            await updateTab(currentTab.id, { url: YOUTUBE_HOME, active: false, muted: false });
-            console.log('[JumpKey BG] Previous tab redirected to home and unmuted:', currentTab.id);
-          } catch (err) {
-            console.warn('[JumpKey BG] Failed to redirect previous tab to home:', err);
+            await updateTab(currentTab.id, { muted: true });
+            console.log('[JumpKey BG] Muted old cross-window tab immediately:', currentTab.id);
+          } catch (muteErr) {
+            console.warn('[JumpKey BG] Failed to mute old cross-window tab immediately:', muteErr);
+          }
+
+          try {
+            await sendMessageToTab(currentTab.id, { action: 'fadeOutAudio', durationMs: 150, steps: 8, opId }, 1);
+            console.log('[JumpKey BG] Requested fade out audio on old cross-window tab:', currentTab.id);
+          } catch (_err) {
+            // ignore silent failure; best effort.
+          }
+
+          // Unfullscreen the old window (if needed) to avoid the old focused fullscreen stealing focus.
+          if (currentTab.windowId != null) {
             try {
-              await updateTab(currentTab.id, { url: YOUTUBE_HOME, active: false });
+              const oldWindow = await getWindow(currentTab.windowId);
+              if (oldWindow && oldWindow.state === 'fullscreen') {
+                console.log('[JumpKey BG] Unfullscreening old window before switching focus:', currentTab.windowId);
+                await setWindowStateWithRetry(currentTab.windowId, 'normal');
+              }
+            } catch (err) {
+              console.warn('[JumpKey BG] Could not unfullscreen old window:', err);
+            }
+          }
+
+          // Ensure the target gets focus next, then nav old tab to the default new tab page.
+          try {
+            if (targetTab && targetTab.windowId != null) {
+              await focusWindow(targetTab.windowId);
+              await updateTab(targetTab.id, { active: true });
+              await sleep(80);
+              console.log('[JumpKey BG] Focused target window/tab before processing old tab:', targetTab.windowId, targetTab.id);
+            }
+          } catch (focusErr) {
+            console.warn('[JumpKey BG] Failed to focus target tab/window before old tab redirect:', focusErr);
+          }
+
+          try {
+            await updateTab(currentTab.id, { muted: true });
+          } catch (muteError) {
+            console.warn('[JumpKey BG] Failed to mute previous tab before redirect:', muteError);
+          }
+
+          try {
+            await updateTab(currentTab.id, { url: DEFAULT_NEW_TAB_PAGE, active: false });
+            console.log('[JumpKey BG] Previous tab redirected to default new tab page and inactive:', currentTab.id);
+          } catch (err) {
+            console.warn('[JumpKey BG] Failed to redirect previous tab to default new tab page:', err);
+            try {
+              await updateTab(currentTab.id, { url: DEFAULT_NEW_TAB_PAGE, active: false, muted: true });
             } catch (err2) {
               console.warn('[JumpKey BG] Fallback failed while redirecting previous tab:', err2);
             }
           }
+
+          // Re-affirm focus on target after the old tab navigation to mitigate race
+          try {
+            await sleep(80);
+            if (targetTab && targetTab.windowId != null) {
+              await focusWindow(targetTab.windowId);
+              console.log('[JumpKey BG] Re-focused target window after keeping old tab alive:', targetTab.windowId);
+            }
+            await updateTab(targetTab.id, { active: true });
+            console.log('[JumpKey BG] Re-activated target tab after keeping old tab alive:', targetTab.id);
+          } catch (focusErr) {
+            console.warn('[JumpKey BG] Failed to re-focus target tab/window after old tab redirect:', focusErr);
+          }
+
+          // Final enforcement to catch any delayed focus race without blocking the switch.
+          if (targetTab && targetTab.windowId != null) {
+            setTimeout(async () => {
+              try {
+                const tabNow = await getTab(targetTab.id).catch(() => null);
+                if (tabNow && !tabNow.active) {
+                  await focusWindow(targetTab.windowId);
+                  await updateTab(targetTab.id, { active: true });
+                  console.log('[JumpKey BG] Final target focus enforcement after cross-window switch:', targetTab.windowId, targetTab.id);
+                }
+              } catch (enforceErr) {
+                console.warn('[JumpKey BG] Final focus enforcement failed:', enforceErr);
+              }
+            }, 240);
+          }
+
+          // After a grace period, restore sound on old tab without changing focus.
+          setTimeout(async () => {
+            try {
+              const tabNow = await getTab(currentTab.id).catch(() => null);
+              if (tabNow && tabNow.id === currentTab.id && tabNow.url && tabNow.url.startsWith(YOUTUBE_HOME) && !tabNow.active) {
+                await updateTab(currentTab.id, { muted: false });
+                console.log('[JumpKey BG] Unmuted previous home tab after grace period:', currentTab.id);
+              }
+            } catch (unmuteErr) {
+              console.warn('[JumpKey BG] Failed to unmute previous tab after grace period:', unmuteErr);
+            }
+          }, 5000);
         } else {
           console.log('[JumpKey BG] Closing previous youtube tab:', currentTab.id);
           try {
@@ -3251,8 +3625,8 @@ async function handleSwitchShorts(currentTab) {
           } catch (err) {
             console.warn('[JumpKey BG] Failed to remove previous tab:', err);
             try {
-              await updateTab(currentTab.id, { muted: true, url: 'about:blank' });
-              console.log('[JumpKey BG] Fallback: navigated previous tab to about:blank and muted it:', currentTab.id);
+              await updateTab(currentTab.id, { muted: true, url: DEFAULT_NEW_TAB_PAGE });
+              console.log('[JumpKey BG] Fallback: navigated previous tab to default new tab page and muted it:', currentTab.id);
             } catch (err2) {
               console.warn('[JumpKey BG] Fallback failed when trying to neutralize previous tab:', err2);
             }
@@ -3335,9 +3709,11 @@ async function handleSwitchShorts(currentTab) {
       const enabledSources = [];
       if (settings.sourceWatchLater) enabledSources.push('watchLater');
       if (settings.sourceLikedVideos) enabledSources.push('liked');
-      if (settings.sourceHomeVideos) enabledSources.push('home');
+      if (settings.sourceHomeVideos) enabledSources.push('homeVideos');
+      if (settings.sourceHomeShorts) enabledSources.push('homeShorts');
 
       let selectedVideoObj = null;
+      const openVideoIds = new Set(await getVideoIdsFromOpenTabs());
 
       // While we have enabled sources, pick one at random and try to get a video
       const sourcesPool = enabledSources.slice();
@@ -3351,35 +3727,63 @@ async function handleSwitchShorts(currentTab) {
               console.log('[JumpKey BG] WL cache needs refresh, syncing...');
               await syncWatchLater(false).catch(() => {});
             }
-            const vid = await getRandomVideoFromWLCache();
+            const vid = await getRandomVideoFromWLCache(openVideoIds);
             if (vid) {
+            if (currentVideoId && vid === currentVideoId) {
+              console.log('[JumpKey BG] Skipping Watch Later video because it is currently playing:', vid);
+            } else {
               selectedVideoObj = { videoId: vid, url: `https://www.youtube.com/watch?v=${vid}` };
               isWatchLaterVideo = true;
               console.log('[JumpKey BG] Selected Watch Later video:', vid);
             }
-          } else if (pick === 'liked') {
+          }
+        } else if (pick === 'liked') {
             console.log('[JumpKey BG] Trying source: Liked Videos');
             if (await needsLikedCacheRefresh()) {
               console.log('[JumpKey BG] Liked cache needs refresh, syncing...');
               await syncLikedVideos(false).catch(() => {});
             }
-            const liked = await getRandomLikedVideoFromCache();
+            const liked = await getRandomLikedVideoFromCache(openVideoIds);
             if (liked && liked.videoId) {
-              selectedVideoObj = { videoId: liked.videoId, url: `https://www.youtube.com/watch?v=${liked.videoId}` };
-              isWatchLaterVideo = true;
-              console.log('[JumpKey BG] Selected Liked video:', liked.videoId);
+              if (currentVideoId && liked.videoId === currentVideoId) {
+                console.log('[JumpKey BG] Skipping liked video because it is currently playing:', liked.videoId);
+              } else {
+                selectedVideoObj = { videoId: liked.videoId, url: `https://www.youtube.com/watch?v=${liked.videoId}` };
+                isWatchLaterVideo = true;
+                console.log('[JumpKey BG] Selected Liked video:', liked.videoId);
+              }
             }
-          } else if (pick === 'home') {
-            console.log('[JumpKey BG] Trying source: Home Random');
+          } else if (pick === 'homeVideos') {
+            console.log('[JumpKey BG] Trying source: Home recommended videos');
             if (await needsHomeCacheRefresh()) {
               console.log('[JumpKey BG] Home cache needs refresh, syncing...');
               await syncHomeRandom(false).catch(() => {});
             }
-            const homeVid = await getRandomHomeVideoFromCache();
+            const homeVid = await getRandomHomeVideoFromCache(openVideoIds);
             if (homeVid && homeVid.videoId) {
-              selectedVideoObj = { videoId: homeVid.videoId, url: `https://www.youtube.com/watch?v=${homeVid.videoId}` };
-              isWatchLaterVideo = true;
-              console.log('[JumpKey BG] Selected Home video:', homeVid.videoId);
+              if (currentVideoId && homeVid.videoId === currentVideoId) {
+                console.log('[JumpKey BG] Skipping home video because it is currently playing:', homeVid.videoId);
+              } else {
+                selectedVideoObj = { videoId: homeVid.videoId, url: `https://www.youtube.com/watch?v=${homeVid.videoId}` };
+                isWatchLaterVideo = true;
+                console.log('[JumpKey BG] Selected Home video:', homeVid.videoId);
+              }
+            }
+          } else if (pick === 'homeShorts') {
+            console.log('[JumpKey BG] Trying source: Home recommended shorts');
+            if (await needsHomeCacheRefresh()) {
+              console.log('[JumpKey BG] Home cache needs refresh, syncing...');
+              await syncHomeRandom(false).catch(() => {});
+            }
+            const homeVid = await getRandomHomeShortFromCache(openVideoIds);
+            if (homeVid && homeVid.videoId) {
+              if (currentVideoId && homeVid.videoId === currentVideoId) {
+                console.log('[JumpKey BG] Skipping home short because it is currently playing:', homeVid.videoId);
+              } else {
+                selectedVideoObj = { videoId: homeVid.videoId, url: `https://www.youtube.com/shorts/${homeVid.videoId}` };
+                isWatchLaterVideo = false;
+                console.log('[JumpKey BG] Selected Home short:', homeVid.videoId);
+              }
             }
           }
         } catch (err) {
@@ -3548,7 +3952,9 @@ scheduleBadgeUpdate(0);
 (async () => {
   try {
     const settings = await getSettings();
-    
+
+    await closeStalePlaylistSyncTabs();
+
     if (settings.sourceWatchLater) {
       console.log('[JumpKey BG] Checking Watch Later cache on startup...');
       

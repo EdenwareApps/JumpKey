@@ -27,7 +27,7 @@
     "service_worker": "background.js"
   },
   "permissions": ["tabs", "storage", "scripting", "system.display"],
-  "host_permissions": ["https://*.youtube.com/*", "https://youtube.com/*"],
+  "host_permissions": ["https://*.youtube.com/*", "https://youtube.com/*", "https://edenware.app/*"],
   "options_page": "options.html",
   "homepage_url": "https://github.com/EdenwareApps/JumpKey",
   "repository": {
@@ -41,6 +41,13 @@
         "https://youtube.com/*"
       ],
       "js": ["content-video.js","content-listing.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://edenware.app/jumpkey/yd.html*"
+      ],
+      "js": ["content-duration-worker.js"],
       "run_at": "document_end"
     }
   ]

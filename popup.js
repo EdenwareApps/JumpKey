@@ -79,6 +79,33 @@ function applyTranslations() {
 // Apply translations when DOM is ready
 applyTranslations();
 
+async function fetchSwitchQueue(retries = 2, delayMs = 80) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const result = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'getSwitchQueue' }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ error: chrome.runtime.lastError });
+          return;
+        }
+        resolve(response);
+      });
+    });
+
+    if (result && result.ok && Array.isArray(result.queue)) {
+      return result.queue;
+    }
+
+    if (attempt < retries) {
+      console.warn('[JumpKey Popup] getSwitchQueue attempt', attempt, 'failed, retrying...', result?.error || result);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } else {
+      console.warn('[JumpKey Popup] getSwitchQueue failed after retries:', result?.error || result);
+    }
+  }
+
+  return [];
+}
+
 function extractVideoId(url) {
   if (url.includes('/shorts/')) {
     const match = url.match(/\/shorts\/([a-zA-Z0-9_-]+)/);
@@ -93,14 +120,6 @@ function extractVideoId(url) {
 function getVideoThumbnailUrl(videoId) {
   if (!videoId) return null;
   return `https://img.youtube.com/vi/${videoId}/default.jpg`;
-}
-
-function tagsToText(tags) {
-  if (!Array.isArray(tags) || tags.length === 0) {
-    return 'No tags';
-  }
-
-  return tags.map((tag) => `#${tag}`).join(' ');
 }
 
 function formatDuration(durationSec) {
@@ -164,9 +183,8 @@ function applyFilter(items, filterText) {
   const q = filterText.trim().toLowerCase();
   return items.filter((it) => {
     const title = normalizeText(it.title || (it.url || ''));
-    const tags = Array.isArray(it.tags) ? it.tags.join(' ') : '';
     const vid = (it.videoId || '').toString().toLowerCase();
-    return title.includes(q) || tags.toLowerCase().includes(q) || vid.includes(q);
+    return title.includes(q) || vid.includes(q);
   });
 }
 
@@ -248,8 +266,13 @@ function renderVideosList(videoItems, activeTabId, filterText = '') {
   const filteredItems = applyFilter(videoItems, filterText);
   const container = document.getElementById('videosList');
 
-  // Sort by snoozed (last) and then by duration to mirror background selection priority
+  // Sort by queue priority first; then snoozed, duration, audible, last accessed
   const sortedItems = filteredItems.slice().sort((a, b) => {
+    const queueA = Number.isFinite(Number(a.queuePriority)) ? Number(a.queuePriority) : Number.POSITIVE_INFINITY;
+    const queueB = Number.isFinite(Number(b.queuePriority)) ? Number(b.queuePriority) : Number.POSITIVE_INFINITY;
+
+    if (queueA !== queueB) return queueA - queueB;
+
     const aSnoozed = Boolean(a.videoId && popupSnoozedVideos[a.videoId] && popupSnoozedVideos[a.videoId] > Date.now());
     const bSnoozed = Boolean(b.videoId && popupSnoozedVideos[b.videoId] && popupSnoozedVideos[b.videoId] > Date.now());
     if (aSnoozed !== bSnoozed) return aSnoozed ? 1 : -1;
@@ -257,7 +280,14 @@ function renderVideosList(videoItems, activeTabId, filterText = '') {
     const da = getDurationSortValue(a);
     const db = getDurationSortValue(b);
     if (da !== db) return da - db;
-    return 0;
+
+    const audibleA = a.audible ? 0 : 1;
+    const audibleB = b.audible ? 0 : 1;
+    if (audibleA !== audibleB) return audibleA - audibleB;
+
+    const lastAccessedA = Number.isFinite(Number(a.lastAccessed)) ? Number(a.lastAccessed) : 0;
+    const lastAccessedB = Number.isFinite(Number(b.lastAccessed)) ? Number(b.lastAccessed) : 0;
+    return lastAccessedB - lastAccessedA;
   });
 
   if (videoItems.length === 0) {
@@ -302,12 +332,12 @@ function renderVideosList(videoItems, activeTabId, filterText = '') {
         : isLikedItem
           ? `Liked Videos • ${videoId}`
           : 'Untitled');
-      const tagsText = tagsToText(item.tags);
-      const sourceBadge = isWatchLaterItem
-        ? '<span class="video-source">Watch Later</span>'
+      const sourceLabel = isWatchLaterItem
+        ? getMessageWithFallback('sourceWatchLater')
         : isLikedItem
-          ? '<span class="video-source">Liked Videos</span>'
-          : '';
+          ? getMessageWithFallback('sourceLikedVideos')
+          : getMessageWithFallback('sourceOpenTab');
+      const sourceBadge = `<span class="video-source">${sourceLabel}</span>`;
       const snoozeExpiry = item.videoId ? popupSnoozedVideos[item.videoId] : null;
       const isSnoozed = Boolean(snoozeExpiry && snoozeExpiry > Date.now());
       const snoozedBadge = isSnoozed ? `<span class="video-snoozed">Snoozed</span>` : '';
@@ -333,7 +363,6 @@ function renderVideosList(videoItems, activeTabId, filterText = '') {
           <div class="video-info">
             <div class="video-title">${escapeHtml(itemTitle)}</div>
             ${durationBadge} ${snoozedBadge}
-            <div class="video-tags">${escapeHtml(tagsText)}</div>
             ${sourceBadge}
           </div>
         </div>
@@ -486,7 +515,6 @@ async function loadVideos() {
         : [];
 
     const historyEntries = Array.isArray(localData?.videoHistory) ? localData.videoHistory : [];
-    const tagsByVideoId = new Map();
     const titleByVideoId = new Map();
     const durationByVideoId = new Map();
 
@@ -511,10 +539,6 @@ async function loadVideos() {
     for (const entry of historyEntries) {
       if (!entry?.videoId) {
         continue;
-      }
-
-      if (!tagsByVideoId.has(entry.videoId)) {
-        tagsByVideoId.set(entry.videoId, Array.isArray(entry.tags) ? entry.tags : []);
       }
 
       if (!titleByVideoId.has(entry.videoId) && entry.title) {
@@ -546,7 +570,6 @@ async function loadVideos() {
         source: 'tab',
         videoId,
         isShort,
-        tags: videoId ? (tagsByVideoId.get(videoId) || []) : [],
         duration: videoId ? durationByVideoId.get(videoId) || null : null
       };
     });
@@ -559,9 +582,6 @@ async function loadVideos() {
             source: 'watch-later',
             videoId: video.videoId,
             title: video.title || titleByVideoId.get(video.videoId) || `Watch Later • ${video.videoId}`,
-            tags: Array.isArray(video.tags) && video.tags.length > 0
-              ? video.tags
-              : (tagsByVideoId.get(video.videoId) || []),
             duration: Number.isFinite(Number(video.duration)) && video.duration > 0 ? Number(video.duration) : durationByVideoId.get(video.videoId) || null
           }))
       : [];
@@ -579,27 +599,79 @@ async function loadVideos() {
             source: 'liked-videos',
             videoId: video.videoId,
             title: video.title || titleByVideoId.get(video.videoId) || `Liked Videos • ${video.videoId}`,
-            tags: Array.isArray(video.tags) && video.tags.length > 0
-              ? video.tags
-              : (tagsByVideoId.get(video.videoId) || []),
             duration: Number.isFinite(Number(video.duration)) && video.duration > 0 ? Number(video.duration) : durationByVideoId.get(video.videoId) || null
           }))
       : [];
 
     const videoItems = [...videoTabs, ...watchLaterItems, ...likedItems];
 
-    // Sort queue by duration (with fallback values no-duration == short 2m / long 20m)
-    videoItems.sort((a, b) => {
-      const da = getDurationSortValue(a);
-      const db = getDurationSortValue(b);
-      return da - db;
-    });
-
-    // cache globally for filtering
-    allVideoItems = videoItems;
     const activeTabId = activeTabs[0]?.id || null;
 
-    console.log('[JumpKey Popup] Found video items:', videoItems.length);
+    const sortTabQueue = () => {
+      const tabItems = videoItems.filter((item) => item.source === 'tab');
+      const sortedTabs = [...tabItems].sort((a, b) => {
+        const da = getDurationSortValue(a);
+        const db = getDurationSortValue(b);
+        if (da !== db) return da - db;
+
+        const audibleA = a.audible ? 0 : 1;
+        const audibleB = b.audible ? 0 : 1;
+        if (audibleA !== audibleB) return audibleA - audibleB;
+
+        const lastA = Number.isFinite(Number(a.lastAccessed)) ? Number(a.lastAccessed) : 0;
+        const lastB = Number.isFinite(Number(b.lastAccessed)) ? Number(b.lastAccessed) : 0;
+        return lastB - lastA;
+      });
+
+      const remaining = [...watchLaterItems, ...likedItems];
+      return [...sortedTabs, ...remaining].map((it, idx) => ({ ...it, queuePriority: idx }));
+    };
+
+    const priorityQueue = await fetchSwitchQueue();
+    console.log('[JumpKey Popup] getSwitchQueue result (post-retries):', priorityQueue);
+
+    if (priorityQueue.length > 0) {
+      console.log('[JumpKey Popup] Applying background priority queue:', priorityQueue.map((item) => item.videoId));
+
+      // Respect the queue order coming from background and append remaining items after it.
+      const videoById = new Map(videoItems.map((item) => [item.videoId, item]));
+      const prioritySet = new Set();
+      const ordered = [];
+
+      for (let i = 0; i < priorityQueue.length; i++) {
+        const item = priorityQueue[i];
+        if (!item || !item.videoId || prioritySet.has(item.videoId)) continue;
+        prioritySet.add(item.videoId);
+
+        const existing = videoById.get(item.videoId);
+        const merged = existing
+          ? { ...existing, queuePriority: i }
+          : { ...item, queuePriority: i, source: item.source || 'tab', title: item.title || `&#8203;`, duration: item.duration || null, isShort: item.isShort || false };
+
+        ordered.push(merged);
+      }
+
+      const rest = videoItems
+        .filter((item) => item.videoId && !prioritySet.has(item.videoId))
+        .map((item, idx) => ({ ...item, queuePriority: priorityQueue.length + idx }));
+
+      allVideoItems = [...ordered, ...rest];
+    } else if (videoTabs.length > 0) {
+      console.log('[JumpKey Popup] No background priority queue found, generating from local tab state');
+      allVideoItems = sortTabQueue();
+    } else {
+      console.log('[JumpKey Popup] No background priority queue found and no open tab candidates, fallback to duration sort');
+      const sortedByDuration = [...videoItems].sort((a, b) => {
+        const da = getDurationSortValue(a);
+        const db = getDurationSortValue(b);
+        return da - db;
+      });
+      allVideoItems = sortedByDuration.map((it) => ({ ...it, queuePriority: undefined }));
+    }
+
+    console.log('[JumpKey Popup] final queue video IDs:', allVideoItems.map((item) => item.videoId));
+
+    console.log('[JumpKey Popup] Found video items:', allVideoItems.length);
     console.log('[JumpKey Popup] Active tab:', activeTabId);
 
     // initial render without filter

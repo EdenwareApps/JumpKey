@@ -61,14 +61,12 @@
   async function extractPlaylistVideosForSync() {
     const videos = [];
     const seen = new Set();
-
     const addVideo = (videoId, title, durationSec) => {
       if (!videoId || seen.has(videoId)) return;
       seen.add(videoId);
       videos.push({
         videoId,
         title: title || 'Unknown',
-        tags: [],
         duration: Number.isFinite(Number(durationSec)) && durationSec > 0 ? Number(durationSec) : null
       });
     };
@@ -104,7 +102,8 @@
                   const durationText = renderer?.lengthText?.simpleText || (renderer?.lengthText?.runs ? renderer.lengthText.runs.map(r => r.text).join('').trim() : '');
                   const parsedDuration = parseDurationTextSync(durationText);
                   const videoId = renderer?.videoId;
-                  addVideo(videoId, getTextSync(renderer?.title), parsedDuration);
+                  const title = getTextSync(renderer?.title);
+                  addVideo(videoId, title, parsedDuration);
                 }
               }
             }
@@ -118,11 +117,14 @@
           const link = el.querySelector('a#video-title');
           if (!link || !link.href) continue;
           const match = link.href.match(/[?&]v=([^&]+)/);
-          if (match && match[1]) {
+          const shortsMatch = link.href.match(/\/shorts\/([^/?&]+)/);
+          const videoId = (match && match[1]) ? match[1] : (shortsMatch && shortsMatch[1]) ? shortsMatch[1] : null;
+          if (videoId) {
             const durationElem = el.querySelector('ytd-thumbnail-overlay-time-status-renderer span') || el.querySelector('span.ytd-thumbnail-overlay-time-status-renderer');
             const durationText = durationElem ? (durationElem.textContent || '').trim() : '';
             const parsedDuration = parseDurationTextSync(durationText);
-            addVideo(match[1], (link.textContent || '').trim(), parsedDuration);
+            const title = (link.textContent || '').trim();
+            addVideo(videoId, title, parsedDuration);
           }
         }
       }
@@ -500,6 +502,14 @@
         height: 100% !important;
         max-width: none !important;
         max-height: none !important;
+      }
+
+      /* solicited: make overlay full height and center short renderer */
+      #reel-overlay-container.ytd-shorts {
+        height: 100% !important;
+      }
+      ytd-reel-video-renderer {
+        align-items: center !important;
       }
 
       /* force the actual player and video tag to expand as well; YouTube
@@ -1000,38 +1010,8 @@
           return false;
         }
 
-        // 🏷️ Tag-related actions (synchronous responses)
-        if (message.action === 'getTagStats') {
-          console.log('[JumpKey] ACTION: getTagStats detected');
-          const stats = getTagStats();
-          sendResponse({ status: 'success', data: stats });
-          return false;
-        } else if (message.action === 'getTopTags') {
-          console.log('[JumpKey] ACTION: getTopTags detected');
-          const limit = message.limit || 10;
-          const topTags = getTopTags(limit);
-          sendResponse({ status: 'success', data: topTags });
-          return false;
-        } else if (message.action === 'clearTagScores') {
-          console.log('[JumpKey] ACTION: clearTagScores detected');
-          const result = clearTagScores();
-          sendResponse({ status: result ? 'success' : 'error' });
-          return false;
-        } else if (message.action === 'generateSmartSearchUrl') {
-          console.log('[JumpKey] ACTION: generateSmartSearchUrl detected');
-          const limit = message.limit || 3;
-          const url = generateSmartSearchUrl(limit);
-          sendResponse({ status: 'success', data: url });
-          return false;
-        } else if (message.action === 'getCurrentTags') {
-          console.log('[JumpKey] ACTION: getCurrentTags detected');
-          const extractTagsFn = typeof extractAllTags === 'function'
-            ? extractAllTags
-            : (typeof window.extractAllTags === 'function' ? window.extractAllTags : null);
-          const tags = extractTagsFn ? extractTagsFn() : [];
-          sendResponse({ status: 'success', data: tags });
-          return false;
-        } else if (message.action === 'setReelFullscreen') {
+        // Synchronous control actions
+        if (message.action === 'setReelFullscreen') {
           console.log('[JumpKey] ACTION: setReelFullscreen detected');
           // Asynchronous - return true
           setReelFullscreen(Boolean(message.enabled))
@@ -1105,7 +1085,6 @@
           }
         }
 
-        sendResponse({ status: 'ignored' });
         return false;
       } catch (error) {
         console.error('[JumpKey] Error handling message:', error);
@@ -1233,7 +1212,6 @@
     });
   }
 
-  refreshBlockedTags();
   // Removed unnecessary setInterval - storage.onChanged below already monitors changes
   loadShortcutSettings();
 
@@ -1245,11 +1223,6 @@
     jumpKeyGlobalState.storageHandler = (changes, areaName) => {
       if (areaName === 'sync' && changes.customShortcuts) {
         loadShortcutSettings();
-      }
-
-      if (areaName === 'local' && changes.blockedTags) {
-        console.log('[JumpKey] Blocked tags changed, reloading...');
-        refreshBlockedTags();
       }
     };
 

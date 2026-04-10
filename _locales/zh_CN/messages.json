@@ -93,6 +93,15 @@
   "saveToWatchLaterSuccess": {
     "message": "已保存到稍后观看"
   },
+  "sourceWatchLater": {
+    "message": "稍后观看"
+  },
+  "sourceLikedVideos": {
+    "message": "点赞视频"
+  },
+  "sourceOpenTab": {
+    "message": "打开的标签页"
+  },
   "filterPlaceholder": {
     "message": "筛选..."
   },

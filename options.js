@@ -6,6 +6,8 @@ const DEFAULT_SETTINGS = {
   sourceLikedVideos: false,
   sourceShortsTabs: true,
   sourceWatchTabs: true,
+  sourceHomeVideos: false,
+  sourceHomeShorts: true,
   syncToYoutubeWatchLater: true,
   autoRemoveWatchedFromWatchLater: true,
   emptyDestination: 'shorts',
@@ -156,6 +158,16 @@ function loadSettings() {
     const sourceLikedVideos = document.getElementById('sourceLikedVideos');
     if (sourceLikedVideos) {
       sourceLikedVideos.checked = Boolean(items.sourceLikedVideos);
+    }
+
+    const sourceHomeVideos = document.getElementById('sourceHomeVideos');
+    if (sourceHomeVideos) {
+      sourceHomeVideos.checked = Boolean(items.sourceHomeVideos);
+    }
+
+    const sourceHomeShorts = document.getElementById('sourceHomeShorts');
+    if (sourceHomeShorts) {
+      sourceHomeShorts.checked = Boolean(items.sourceHomeShorts);
     }
 
     const syncToYoutubeWatchLater = document.getElementById('syncToYoutubeWatchLater');
@@ -368,7 +380,9 @@ function saveSettings() {
     return;
   }
 
-  const hasAnySourceEnabled = sourceWatchLater.checked || sourceShortsTabs.checked || sourceWatchTabs.checked || sourceLikedVideos.checked;
+  const sourceHomeVideos = document.getElementById('sourceHomeVideos');
+  const sourceHomeShorts = document.getElementById('sourceHomeShorts');
+  const hasAnySourceEnabled = sourceWatchLater.checked || sourceShortsTabs.checked || sourceWatchTabs.checked || sourceLikedVideos.checked || (sourceHomeVideos && sourceHomeVideos.checked) || (sourceHomeShorts && sourceHomeShorts.checked);
   if (!hasAnySourceEnabled) {
     sourceShortsTabs.checked = true;
   }
@@ -376,13 +390,15 @@ function saveSettings() {
   const theme = themeSelect.value;
   applyTheme(theme);
 
-  chrome.storage.sync.set(
+    chrome.storage.sync.set(
     {
       fullscreenOnSwitch: checkbox.checked,
       useWatchLater: sourceWatchLater.checked,
       sourceWatchLater: sourceWatchLater.checked,
       sourceShortsTabs: sourceShortsTabs.checked,
       sourceWatchTabs: sourceWatchTabs.checked,
+      sourceHomeVideos: sourceHomeVideos.checked, // default false
+      sourceHomeShorts: sourceHomeShorts.checked, // default false
       sourceLikedVideos: sourceLikedVideos.checked,
       syncToYoutubeWatchLater: (document.getElementById('syncToYoutubeWatchLater') && document.getElementById('syncToYoutubeWatchLater').checked) || false,
       autoRemoveWatchedFromWatchLater: (document.getElementById('autoRemoveWatchedFromWatchLater') && document.getElementById('autoRemoveWatchedFromWatchLater').checked) || false,
@@ -526,6 +542,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const sourceLikedVideos = document.getElementById('sourceLikedVideos');
   if (sourceLikedVideos) {
     sourceLikedVideos.addEventListener('change', saveSettings);
+  }
+
+  const sourceHomeShorts = document.getElementById('sourceHomeShorts');
+  if (sourceHomeShorts) {
+    sourceHomeShorts.addEventListener('change', saveSettings);
   }
 
   const syncToYoutubeWatchLater = document.getElementById('syncToYoutubeWatchLater');
