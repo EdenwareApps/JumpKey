@@ -252,7 +252,7 @@ function restoreWindowAfterFullscreen(windowId) {
     };
   }
 
-  // Add delay to ensure the browser finishes transition before maximizing
+  // Add a small delay to ensure the browser finishes its native transition before maximizing
   setTimeout(() => {
     chrome.windows.update(windowId, updateInfo, () => {
       if (chrome.runtime.lastError) {
@@ -261,7 +261,7 @@ function restoreWindowAfterFullscreen(windowId) {
       fullscreenRestoreStateByWindowId.delete(windowId);
       windowsBeingRestored.delete(windowId);
     });
-  }, 250); // 250ms de delay
+  }, 100); // 100ms de delay
 }
 
 function removeTab(tabId) {

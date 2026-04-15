@@ -3,7 +3,7 @@
   "name": "JumpKey for YouTube",
   "short_name": "JumpKey",
   "version": "1.0.0",
-  "description": "One-click Queue for YouTube Watch Later, Keyboard Shortcuts Included — Never Miss a Video Again",
+  "description": "One-click YouTube queue with custom shortcuts to jump between videos quickly.",
   "default_locale": "en",
   "action": {
     "default_title": "View Your YouTube Queue",
@@ -30,10 +30,6 @@
   "host_permissions": ["https://*.youtube.com/*", "https://youtube.com/*", "https://edenware.app/*"],
   "options_page": "options.html",
   "homepage_url": "https://github.com/EdenwareApps/JumpKey",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/EdenwareApps/JumpKey.git"
-  },
   "content_scripts": [
     {
       "matches": [

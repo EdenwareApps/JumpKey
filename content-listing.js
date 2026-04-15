@@ -301,11 +301,11 @@
       }
       // Se não há validação pendente, inicia uma
       if (!listingFullscreenExitValidation) {
-        console.log('[JumpKey][DEBUG] handleFullscreenExit: Possível saída de fullscreen detectada, aguardando validação (2s)...');
+        console.log('[JumpKey][DEBUG] handleFullscreenExit: Possível saída de fullscreen detectada, aguardando validação (300ms)...');
         listingFullscreenExitValidation = setTimeout(() => {
-          // Checa novamente após 2 segundos
+          // Checa novamente após breve espera
           if (!isLikelyWindowFullscreen()) {
-            console.log('[JumpKey][DEBUG] handleFullscreenExit: Confirmado saída de fullscreen após 2 checagens, removendo modo expandido.');
+            console.log('[JumpKey][DEBUG] handleFullscreenExit: Confirmado saída de fullscreen após validação rápida, removendo modo expandido.');
 
             // Corrige tamanho da janela para 100% (caso tenha ficado em 50%)
             try {
@@ -337,7 +337,7 @@
             console.log('[JumpKey][DEBUG] handleFullscreenExit: Falso alarme, voltou para fullscreen durante validação.');
           }
           listingFullscreenExitValidation = null;
-        }, 2000);
+        }, 300);
       }
     } else {
       // Se voltou para fullscreen, cancela validação
@@ -478,6 +478,9 @@
       ytd-app {
         --ytd-masthead-height: 0px !important;
         --ytd-persistent-guide-width: 0px !important;
+      }
+      ytd-app[guide-persistent-and-visible] ytd-page-manager.ytd-app {
+        margin-left: 0 !important;
       }
       ytd-shorts {
         --ytd-shorts-player-height: 100vh;
@@ -899,7 +902,7 @@
             } catch (err) {
               console.warn('[JumpKey] Retry applying expanded mode failed:', err);
             }
-          }, 300);
+          }, 80);
           return { status: 'deferred', reason: 'shorts-not-ready' };
         }
 
@@ -937,23 +940,26 @@
         console.warn('[JumpKey] Failed to exit document fullscreen:', err);
       }
 
-      // Remove expanded modes applied by the extension
-      if (listingShortsModeActive) {
-        try {
-          removerModoExpandido();
-          console.log('[JumpKey] Removed shorts expanded mode via Escape');
-        } catch (e) {
-          console.warn('[JumpKey] Error removing shorts expanded mode:', e);
-        }
+      // Immediately remove any expanded mode that may still be active,
+      // even if the internal active flag is stale.
+      try {
+        removerModoExpandido();
+        console.log('[JumpKey] Removed shorts expanded mode via Escape');
+      } catch (e) {
+        console.warn('[JumpKey] Error removing shorts expanded mode:', e);
       }
 
-      if (listingLongVideoModeActive) {
-        try {
-          removerModoExpandidoLongo();
-          console.log('[JumpKey] Removed long video expanded mode via Escape');
-        } catch (e) {
-          console.warn('[JumpKey] Error removing long video expanded mode:', e);
-        }
+      try {
+        removerModoExpandidoLongo();
+        console.log('[JumpKey] Removed long video expanded mode via Escape');
+      } catch (e) {
+        console.warn('[JumpKey] Error removing long video expanded mode:', e);
+      }
+
+      if (listingFullscreenExitValidation) {
+        clearTimeout(listingFullscreenExitValidation);
+        listingFullscreenExitValidation = null;
+        console.log('[JumpKey][DEBUG] handleEscapeKey: cancelled pending fullscreen-exit validation');
       }
 
       // Garante que a janela saia do fullscreen (não só o documento)

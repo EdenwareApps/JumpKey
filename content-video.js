@@ -58,8 +58,15 @@ const jumpKeyGlobalState = window.__jumpKeyGlobalState || (window.__jumpKeyGloba
   fullscreenchangeHandler: null,
   DOMContentLoadedHandler: null,
   loadHandler: null,
+  reportLoadHandler: null,
+  reportNavigateHandler: null,
+  reportVisibilityHandler: null,
   cssObserver: null,
-  videoObserver: null
+  videoObserver: null,
+  locationPollInterval: null,
+  lastObservedLocationHref: '',
+  lastHistoryReport: null,
+  lastDurationReportKey: null
 });
 
 let lastAppliedExpandedAt = 0;
@@ -85,39 +92,47 @@ function handleEscToExitFullscreen(event) {
         document.exitFullscreen().catch((e) => {
           console.warn('[JumpKey] Error exiting native fullscreen:', e);
         });
-      } else if (isLikelyWindowFullscreen()) {
-        // Se a janela já está em tamanho fullscreen (F11/local), sair
-        if (chrome.windows && chrome.windows.getCurrent && chrome.windows.update) {
-          chrome.windows.getCurrent((win) => {
-            if (win && win.state && win.state !== 'normal') {
-              chrome.windows.update(win.id, { state: 'normal' }, (updated) => {
-                if (chrome.runtime.lastError) {
-                  console.warn('[JumpKey] Falha ao restaurar janela normal:', chrome.runtime.lastError);
-                } else {
-                  console.log('[JumpKey] Janela restaurada para normal após ESC');
-                }
-              });
-            }
-          });
-        }
       }
     } catch (e) {
       console.warn('[JumpKey] handleEscToExitFullscreen fallback error:', e);
     }
 
-    // Restaurar janela maximizada ao sair do fullscreen nativo
-    if (document.fullscreenElement === null) {
+    const exitBrowserFullscreen = () => {
       try {
-        chrome.windows && chrome.windows.getCurrent && chrome.windows.update && chrome.windows.getCurrent((win) => {
-          if (win && win.state !== 'maximized') {
-            chrome.windows.update(win.id, { state: 'maximized' });
-            console.log('[JumpKey] Janela restaurada para maximizada após ESC/fullscreen');
-          }
-        });
+        if (chrome && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'exitFullscreenWindow' }, (resp) => {
+            if (chrome.runtime.lastError) {
+              console.debug('[JumpKey] exitFullscreenWindow lastError:', chrome.runtime.lastError.message);
+            } else {
+              console.log('[JumpKey] background exitFullscreenWindow response:', resp);
+            }
+          });
+        }
       } catch (e) {
-        console.warn('[JumpKey] Falha ao restaurar janela maximizada:', e);
+        console.warn('[JumpKey] Failed to send exitFullscreenWindow message:', e);
       }
-    }
+
+      try {
+        if (chrome.windows && chrome.windows.getCurrent && chrome.windows.update) {
+          chrome.windows.getCurrent((win) => {
+            if (win && win.state && win.state !== 'normal' && win.state !== 'maximized') {
+              chrome.windows.update(win.id, { state: 'maximized' }, (updated) => {
+                if (chrome.runtime.lastError) {
+                  console.warn('[JumpKey] Falha ao restaurar janela maximizada:', chrome.runtime.lastError);
+                } else {
+                  console.log('[JumpKey] Janela restaurada para maximizada após ESC');
+                }
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[JumpKey] Falha ao restaurar janela maximizada diretamente:', e);
+      }
+    };
+
+    // Tenta sair do fullscreen de navegador imediatamente e também via background.
+    exitBrowserFullscreen();
 
     // Sempre tente remover qualquer modo expandido ativo ao pressionar ESC.
     try {
@@ -157,6 +172,15 @@ if (jumpKeyGlobalState.initialized) {
   if (jumpKeyGlobalState.loadHandler) {
     window.removeEventListener('load', jumpKeyGlobalState.loadHandler);
   }
+  if (jumpKeyGlobalState.reportLoadHandler) {
+    window.removeEventListener('load', jumpKeyGlobalState.reportLoadHandler);
+  }
+  if (jumpKeyGlobalState.reportNavigateHandler) {
+    window.removeEventListener('yt-navigate-finish', jumpKeyGlobalState.reportNavigateHandler);
+  }
+  if (jumpKeyGlobalState.reportVisibilityHandler) {
+    document.removeEventListener('visibilitychange', jumpKeyGlobalState.reportVisibilityHandler);
+  }
   if (jumpKeyGlobalState.keydownHandler) {
     document.removeEventListener('keydown', jumpKeyGlobalState.keydownHandler);
   }
@@ -185,6 +209,10 @@ if (jumpKeyGlobalState.initialized) {
   if (jumpKeyGlobalState.watchInterval) {
     try { clearInterval(jumpKeyGlobalState.watchInterval); } catch (e) {}
     jumpKeyGlobalState.watchInterval = null;
+  }
+  if (jumpKeyGlobalState.locationPollInterval) {
+    try { clearInterval(jumpKeyGlobalState.locationPollInterval); } catch (e) {}
+    jumpKeyGlobalState.locationPollInterval = null;
   }
   
   // Cleanup pending timeouts
@@ -236,33 +264,57 @@ let customShortcuts = { ...DEFAULT_SETTINGS.customShortcuts };
 // Start checking for Out of Memory errors after all variables are initialized
 scheduleOutOfMemoryCheck();
 
+function scheduleVideoStateReport(delay = 800) {
+  setTimeout(() => {
+    queueReportCurrentVideo();
+    reportDurationToBackground();
+  }, delay);
+}
+
 // Auto report duration when a YouTube video page loads or navigates
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    queueReportCurrentVideo();
-    reportDurationToBackground();
-  }, 800);
-});
+if (jumpKeyGlobalState.reportLoadHandler) {
+  window.removeEventListener('load', jumpKeyGlobalState.reportLoadHandler);
+}
 
-window.addEventListener('yt-navigate-finish', () => {
-  setTimeout(() => {
-    queueReportCurrentVideo();
-    reportDurationToBackground();
-  }, 800);
-});
+jumpKeyGlobalState.reportLoadHandler = () => {
+  scheduleVideoStateReport();
+};
 
-window.addEventListener('visibilitychange', () => {
+window.addEventListener('load', jumpKeyGlobalState.reportLoadHandler);
+
+if (jumpKeyGlobalState.reportNavigateHandler) {
+  window.removeEventListener('yt-navigate-finish', jumpKeyGlobalState.reportNavigateHandler);
+}
+
+jumpKeyGlobalState.reportNavigateHandler = () => {
+  scheduleVideoStateReport();
+};
+
+window.addEventListener('yt-navigate-finish', jumpKeyGlobalState.reportNavigateHandler);
+
+if (jumpKeyGlobalState.reportVisibilityHandler) {
+  document.removeEventListener('visibilitychange', jumpKeyGlobalState.reportVisibilityHandler);
+}
+
+jumpKeyGlobalState.reportVisibilityHandler = () => {
   if (document.visibilityState === 'visible') {
     queueReportCurrentVideo();
     reportDurationToBackground();
   }
-});
+};
+
+document.addEventListener('visibilitychange', jumpKeyGlobalState.reportVisibilityHandler);
 
 // In case the page transitions via History API without events, poll occasionally.
-let __jumpkey_lastLocation = window.location.href;
-setInterval(() => {
-  if (window.location.href !== __jumpkey_lastLocation) {
-    __jumpkey_lastLocation = window.location.href;
+jumpKeyGlobalState.lastObservedLocationHref = window.location.href;
+
+if (jumpKeyGlobalState.locationPollInterval) {
+  clearInterval(jumpKeyGlobalState.locationPollInterval);
+}
+
+jumpKeyGlobalState.locationPollInterval = setInterval(() => {
+  if (window.location.href !== jumpKeyGlobalState.lastObservedLocationHref) {
+    jumpKeyGlobalState.lastObservedLocationHref = window.location.href;
     queueReportCurrentVideo();
     reportDurationToBackground();
   }
@@ -314,6 +366,35 @@ function getVideoTitle() {
   return 'Unknown';
 }
 
+function normalizeVideoTitle(title) {
+  return typeof title === 'string' ? title.trim() : '';
+}
+
+function isPlaceholderVideoTitle(title) {
+  const normalized = normalizeVideoTitle(title).toLowerCase();
+  return normalized === '' || normalized === 'unknown' || normalized === 'início' || normalized === 'inicio' || normalized === 'home' || normalized === 'shorts' || normalized === 'youtube';
+}
+
+function shouldSkipVideoHistoryReport(videoId, title) {
+  const lastReport = jumpKeyGlobalState.lastHistoryReport;
+  if (!lastReport || lastReport.videoId !== videoId) {
+    return false;
+  }
+
+  const previousTitle = normalizeVideoTitle(lastReport.title);
+  const currentTitle = normalizeVideoTitle(title);
+
+  if (previousTitle === currentTitle) {
+    return true;
+  }
+
+  if (!isPlaceholderVideoTitle(previousTitle) && isPlaceholderVideoTitle(currentTitle)) {
+    return true;
+  }
+
+  return false;
+}
+
 function isYoutubeVideoPage() {
   try {
     const host = window.location.hostname || '';
@@ -343,6 +424,12 @@ async function reportCurrentVideo() {
   currentVideoId = videoId;
 
   const title = getVideoTitle();
+
+  if (shouldSkipVideoHistoryReport(videoId, title)) {
+    return;
+  }
+
+  jumpKeyGlobalState.lastHistoryReport = { videoId, title };
   console.log('[JumpKey] Current video:', { videoId, title });
 
   chrome.runtime.sendMessage(
@@ -486,6 +573,12 @@ async function reportDurationToBackground() {
   }
 
   if (duration && duration > 0) {
+    const durationReportKey = `${videoId}:${Math.round(duration)}`;
+    if (jumpKeyGlobalState.lastDurationReportKey === durationReportKey) {
+      return;
+    }
+
+    jumpKeyGlobalState.lastDurationReportKey = durationReportKey;
     console.log('[JumpKey] reportVideoDuration emitting', { videoId, duration });
     chrome.runtime.sendMessage({ action: 'reportVideoDuration', videoId, duration }, () => {
       if (chrome.runtime.lastError) {
