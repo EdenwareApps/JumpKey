@@ -29,7 +29,7 @@
   "permissions": ["tabs", "storage", "scripting", "system.display"],
   "host_permissions": ["https://*.youtube.com/*", "https://youtube.com/*", "https://edenware.app/*"],
   "options_page": "options.html",
-  "homepage_url": "https://github.com/EdenwareApps/JumpKey",
+  "homepage_url": "https://chromewebstore.google.com/detail/jumpkey-for-youtube/fieibhknplgoddlbohblahfcojhgbpfg",
   "content_scripts": [
     {
       "matches": [
