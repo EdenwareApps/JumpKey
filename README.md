@@ -1,4 +1,4 @@
-# 🛋️ JumpKey: Lazy YouTube Browsing
+# JumpKey: Lazy YouTube Browsing
 
 <p align="center">
   <a href="https://edenware.app/jumpkey" target="_blank">
