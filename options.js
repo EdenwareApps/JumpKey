@@ -268,16 +268,24 @@ function renderCustomShortcuts(shortcuts) {
     if (!container || !btn) return;
 
     const keys = shortcuts[key] || [];
-    container.innerHTML = keys
-      .map(
-        (k) => `
-      <span class="key-badge" data-action="${key}" data-key="${k}">
-        ${getDisplayKeyName(k)}
-        <button type="button" class="key-badge-remove" title="Remove">×</button>
-      </span>
-    `
-      )
-      .join('');
+    container.replaceChildren();
+
+    keys.forEach((k) => {
+      const badge = document.createElement('span');
+      badge.className = 'key-badge';
+      badge.setAttribute('data-action', key);
+      badge.setAttribute('data-key', k);
+      badge.appendChild(document.createTextNode(getDisplayKeyName(k)));
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'key-badge-remove';
+      removeBtn.title = 'Remove';
+      removeBtn.textContent = '×';
+      badge.appendChild(removeBtn);
+
+      container.appendChild(badge);
+    });
 
     container.querySelectorAll('.key-badge-remove').forEach((removeBtn) => {
       removeBtn.onclick = (e) => {

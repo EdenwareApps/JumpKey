@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "JumpKey for YouTube",
   "short_name": "JumpKey",
-  "version": "1.0.0",
-  "description": "One-click YouTube queue with custom shortcuts to jump between videos quickly.",
+  "version": "1.0.1",
+  "description": "Lazy YouTube browsing. Press Y to jump between videos instantly. Endless watching with auto-refilling queue.",
   "default_locale": "en",
   "action": {
     "default_title": "View Your YouTube Queue",

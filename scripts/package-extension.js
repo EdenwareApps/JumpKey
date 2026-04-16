@@ -6,15 +6,36 @@ const {
   readFileSync,
   readdirSync,
   rmSync,
-  unlinkSync
+  unlinkSync,
+  writeFileSync
 } = require('fs');
 const { join, resolve } = require('path');
 const { spawnSync } = require('child_process');
 
+function getTargetBrowser() {
+  const explicitArg = process.argv.find((arg) => arg.startsWith('--target='));
+  if (explicitArg) {
+    return explicitArg.split('=')[1].trim().toLowerCase();
+  }
+
+  const envTarget = (process.env.TARGET_BROWSER || '').trim().toLowerCase();
+  if (envTarget) {
+    return envTarget;
+  }
+
+  return 'chrome';
+}
+
+const targetBrowser = getTargetBrowser();
+if (!['chrome', 'firefox'].includes(targetBrowser)) {
+  console.error(`Alvo invalido: ${targetBrowser}. Use --target=chrome ou --target=firefox.`);
+  process.exit(1);
+}
+
 const rootDir = resolve('.');
 const distDir = join(rootDir, 'dist');
-const sourceDir = join(distDir, 'unpacked');
-const outputZip = join(distDir, 'JumpKey.zip');
+const sourceDir = join(distDir, targetBrowser === 'firefox' ? 'unpacked-firefox' : 'unpacked');
+const outputZip = join(distDir, targetBrowser === 'firefox' ? 'JumpKey-firefox.zip' : 'JumpKey.zip');
 const allowedRootUnderscoreNames = new Set(['_locales']);
 
 const defaultRootExcludes = new Set([
@@ -80,6 +101,43 @@ function syncSourceFolder() {
   }
 }
 
+function applyTargetManifestOverrides() {
+  if (targetBrowser !== 'firefox') {
+    return;
+  }
+
+  const manifestPath = join(sourceDir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+
+  // Firefox currently flags this permission as invalid.
+  if (Array.isArray(manifest.permissions)) {
+    manifest.permissions = manifest.permissions.filter((permission) => permission !== 'system.display');
+  }
+
+  // AMO validation requires gecko id on MV3 and warns for missing data collection key.
+  manifest.browser_specific_settings = manifest.browser_specific_settings || {};
+  manifest.browser_specific_settings.gecko = manifest.browser_specific_settings.gecko || {};
+  if (!manifest.browser_specific_settings.gecko.id) {
+    manifest.browser_specific_settings.gecko.id = 'jumpkey@edenware.app';
+  }
+  manifest.browser_specific_settings.gecko.data_collection_permissions = {
+    required: ['none'],
+    optional: []
+  };
+
+  if (manifest.background && manifest.background.service_worker) {
+    const workerFile = manifest.background.service_worker;
+    const scripts = Array.isArray(manifest.background.scripts) ? manifest.background.scripts : [];
+    if (!scripts.includes(workerFile)) {
+      scripts.push(workerFile);
+    }
+    manifest.background.scripts = scripts;
+    delete manifest.background.service_worker;
+  }
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
 function validateSyncedPackage() {
   const manifestPath = join(sourceDir, 'manifest.json');
   if (!existsSync(manifestPath)) {
@@ -102,6 +160,29 @@ function validateSyncedPackage() {
 
   if (manifest.manifest_version !== 3) {
     throw new Error(`manifest_version inesperado (${manifest.manifest_version}). Esperado: 3`);
+  }
+
+  if (targetBrowser === 'firefox') {
+    const gecko = manifest.browser_specific_settings && manifest.browser_specific_settings.gecko;
+    if (!gecko || !gecko.id) {
+      throw new Error('manifest Firefox sem browser_specific_settings.gecko.id');
+    }
+
+    if (!gecko.data_collection_permissions) {
+      throw new Error('manifest Firefox sem browser_specific_settings.gecko.data_collection_permissions');
+    }
+
+    if (!Array.isArray(gecko.data_collection_permissions.required) || gecko.data_collection_permissions.required.length < 1) {
+      throw new Error('manifest Firefox sem browser_specific_settings.gecko.data_collection_permissions.required valido');
+    }
+
+    if ((manifest.permissions || []).includes('system.display')) {
+      throw new Error('manifest Firefox contem permissao nao suportada: system.display');
+    }
+
+    if (!manifest.background || !Array.isArray(manifest.background.scripts) || manifest.background.scripts.length === 0) {
+      throw new Error('manifest Firefox sem fallback background.scripts');
+    }
   }
 
   const localesDir = join(sourceDir, '_locales');
@@ -164,6 +245,7 @@ function validateZipEntries() {
 }
 
 syncSourceFolder();
+applyTargetManifestOverrides();
 validateSyncedPackage();
 
 if (existsSync(outputZip)) {
@@ -221,5 +303,6 @@ if (result.status !== 0) {
 
 validateZipEntries();
 
+console.log(`Target: ${targetBrowser}`);
 console.log(`Pasta sincronizada em ${resolve(sourceDir)}`);
 console.log(`Zip gerado em ${resolve(outputZip)}`);

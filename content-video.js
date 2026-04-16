@@ -1,6 +1,21 @@
-// SVGs idênticos aos da extensão youtube-like-dislike-shortcut, tamanho padrão do YouTube (96x96)
-const SVG_LIKE = `<svg width="96" height="96" viewBox="0 0 24 24" focusable="false" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M3,11h3v10H3V11z M18.77,11h-4.23l1.52-4.94C16.38,5.03,15.54,4,14.38,4c-0.58,0-1.14,0.24-1.52,0.65L7,11v10h10.43 c1.06,0,1.98-0.67,2.19-1.61l1.34-6C21.23,12.15,20.18,11,18.77,11z"/></svg>`;
-const SVG_DISLIKE = `<svg width="96" height="96" viewBox="0 0 24 24" focusable="false" xmlns="http://www.w3.org/2000/svg"><path fill="white" d="M17,4h-1H6.57C5.5,4,4.59,4.67,4.38,5.61l-1.34,6C2.77,12.85,3.82,14,5.23,14h4.23l-1.52,4.94C7.62,19.97,8.46,21,9.62,21 c0.58,0,1.14-0.24,1.52-0.65L17,14h4V4H17z M10.4,19.67C10.21,19.88,9.92,20,9.62,20c-0.26,0-0.5-0.11-0.63-0.3 c-0.07-0.1-0.15-0.26-0.09-0.47l1.52-4.94l0.4-1.29H9.46H5.23c-0.41,0-0.77-0.28-0.86-0.68l1.34-6C5.81,5.15,6.16,5,6.57,5H16v8.59 l-4.08,4.43C11.7,18.21,11.07,18.44,10.4,19.67z"/></svg>`;
+const LIKE_PATH_D = 'M3,11h3v10H3V11z M18.77,11h-4.23l1.52-4.94C16.38,5.03,15.54,4,14.38,4c-0.58,0-1.14,0.24-1.52,0.65L7,11v10h10.43 c1.06,0,1.98-0.67,2.19-1.61l1.34-6C21.23,12.15,20.18,11,18.77,11z';
+const DISLIKE_PATH_D = 'M17,4h-1H6.57C5.5,4,4.59,4.67,4.38,5.61l-1.34,6C2.77,12.85,3.82,14,5.23,14h4.23l-1.52,4.94C7.62,19.97,8.46,21,9.62,21 c0.58,0,1.14-0.24,1.52-0.65L17,14h4V4H17z M10.4,19.67C10.21,19.88,9.92,20,9.62,20c-0.26,0-0.5-0.11-0.63-0.3 c-0.07-0.1-0.15-0.26-0.09-0.47l1.52-4.94l0.4-1.29H9.46H5.23c-0.41,0-0.77-0.28-0.86-0.68l1.34-6C5.81,5.15,6.16,5,6.57,5H16v8.59 l-4.08,4.43C11.7,18.21,11.07,18.44,10.4,19.67z';
+
+function createThumbIcon(isLike) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', '96');
+  svg.setAttribute('height', '96');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('focusable', 'false');
+
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('fill', 'white');
+  path.setAttribute('d', isLike ? LIKE_PATH_D : DISLIKE_PATH_D);
+
+  svg.appendChild(path);
+  return svg;
+}
 
 function showIndicator(isLike) {
   if (typeof(window.findPlayerContainer) !== 'function' && typeof(window.findPlayerContainer) === 'function') {
@@ -34,7 +49,7 @@ function showIndicator(isLike) {
     overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
     player.appendChild(overlay);
   }
-  overlay.innerHTML = isLike ? SVG_LIKE : SVG_DISLIKE;
+  overlay.replaceChildren(createThumbIcon(isLike));
   overlay.style.opacity = '1';
 
   // Remove após 900ms

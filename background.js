@@ -1777,52 +1777,56 @@ async function attemptFullscreenByBounds(windowId) {
   }
 }
 
-chrome.windows.onBoundsChanged.addListener((win) => {
-  if (!win || win.id == null) {
-    return;
-  }
+if (chrome.windows && chrome.windows.onBoundsChanged && typeof chrome.windows.onBoundsChanged.addListener === 'function') {
+  chrome.windows.onBoundsChanged.addListener((win) => {
+    if (!win || win.id == null) {
+      return;
+    }
 
-  // Keep a rolling view of the previous window bounds/state to capture fullscreen transitions
-  const prevInfo = windowLastInfoById.get(win.id);
-  if (prevInfo && prevInfo.state !== 'fullscreen' && win.state === 'fullscreen') {
-    // When the window enters fullscreen, save the bounds/state it had immediately before.
+    // Keep a rolling view of the previous window bounds/state to capture fullscreen transitions
+    const prevInfo = windowLastInfoById.get(win.id);
+    if (prevInfo && prevInfo.state !== 'fullscreen' && win.state === 'fullscreen') {
+      // When the window enters fullscreen, save the bounds/state it had immediately before.
+      if (!fullscreenRestoreStateByWindowId.has(win.id)) {
+        fullscreenRestoreStateByWindowId.set(win.id, {
+          state: prevInfo.state === 'maximized' ? 'maximized' : 'normal',
+          left: prevInfo.left,
+          top: prevInfo.top,
+          width: prevInfo.width,
+          height: prevInfo.height
+        });
+        console.log('[JumpKey BG] Saved window bounds before fullscreen (boundsChanged):', { windowId: win.id, prevInfo });
+      }
+    }
+
+    windowLastInfoById.set(win.id, {
+      state: win.state,
+      left: win.left,
+      top: win.top,
+      width: win.width,
+      height: win.height
+    });
+
+    if (pendingFullscreenWindowIds.has(win.id)) {
+      if (win.state === 'fullscreen') {
+        pendingFullscreenWindowIds.delete(win.id);
+      }
+      return;
+    }
+
     if (!fullscreenRestoreStateByWindowId.has(win.id)) {
-      fullscreenRestoreStateByWindowId.set(win.id, {
-        state: prevInfo.state === 'maximized' ? 'maximized' : 'normal',
-        left: prevInfo.left,
-        top: prevInfo.top,
-        width: prevInfo.width,
-        height: prevInfo.height
-      });
-      console.log('[JumpKey BG] Saved window bounds before fullscreen (boundsChanged):', { windowId: win.id, prevInfo });
+      return;
     }
-  }
 
-  windowLastInfoById.set(win.id, {
-    state: win.state,
-    left: win.left,
-    top: win.top,
-    width: win.width,
-    height: win.height
-  });
-
-  if (pendingFullscreenWindowIds.has(win.id)) {
     if (win.state === 'fullscreen') {
-      pendingFullscreenWindowIds.delete(win.id);
+      return;
     }
-    return;
-  }
 
-  if (!fullscreenRestoreStateByWindowId.has(win.id)) {
-    return;
-  }
-
-  if (win.state === 'fullscreen') {
-    return;
-  }
-
-  restoreWindowAfterFullscreen(win.id);
-});
+    restoreWindowAfterFullscreen(win.id);
+  });
+} else {
+  console.log('[JumpKey BG] windows.onBoundsChanged not supported on this browser; skipping listener registration.');
+}
 
 chrome.windows.onRemoved.addListener((windowId) => {
   // Clean up any stored state for windows that are closed.

@@ -18,7 +18,7 @@ function applyLocalization() {
     'description',
     getMessage(
       'welcomeDescription',
-      'JumpKey can automatically enter fullscreen when switching videos. You can change this later in Options.'
+      'JumpKey can automatically enter fullscreen when switching videos.'
     )
   );
   setText('note', getMessage('welcomeNote', 'You can change this later in Options.'));

@@ -46,12 +46,8 @@ function applyTranslations() {
   localizedElements.forEach((element) => {
     const messageKey = element.getAttribute('data-i18n');
     const message = getMessageWithFallback(messageKey);
-    
-    if (element.children.length === 0) {
-      element.textContent = message;
-    } else {
-      element.innerHTML = message;
-    }
+
+    element.textContent = message;
   });
 
   const titleElements = document.querySelectorAll('[data-i18n-title]');
@@ -262,6 +258,142 @@ function snoozeVideo(videoId, durationMs = POPUP_HIDE_DURATION_MS) {
   });
 }
 
+function renderEmptyState(container, titleText, detailText = '') {
+  container.replaceChildren();
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'empty-state';
+
+  const title = document.createElement('p');
+  title.textContent = titleText;
+  wrapper.appendChild(title);
+
+  if (detailText) {
+    const detail = document.createElement('p');
+    detail.style.fontSize = '12px';
+    detail.style.marginTop = '8px';
+    detail.style.color = '#666';
+    detail.textContent = detailText;
+    wrapper.appendChild(detail);
+  }
+
+  container.appendChild(wrapper);
+}
+
+function createVideoListItemElement(item, index, activeTabId) {
+  const itemNumber = index + 1;
+  const isWatchLaterItem = item.source === 'watch-later';
+  const isLikedItem = item.source === 'liked-videos';
+  const videoId = (isWatchLaterItem || isLikedItem) ? item.videoId : extractVideoId(item.url);
+  if (videoId && isVideoHidden(videoId)) {
+    return null;
+  }
+
+  const thumbnailUrl = getVideoThumbnailUrl(videoId);
+  const isExternalSourceItem = isWatchLaterItem || isLikedItem;
+  const isActive = !isExternalSourceItem && item.id === activeTabId;
+  const itemId = isWatchLaterItem
+    ? `wl-${videoId}`
+    : isLikedItem
+      ? `ll-${videoId}`
+      : String(item.id);
+  const itemTitle = item.title || (isWatchLaterItem
+    ? `Watch Later • ${videoId}`
+    : isLikedItem
+      ? `Liked Videos • ${videoId}`
+      : 'Untitled');
+  const sourceLabel = isWatchLaterItem
+    ? getMessageWithFallback('sourceWatchLater')
+    : isLikedItem
+      ? getMessageWithFallback('sourceLikedVideos')
+      : getMessageWithFallback('sourceOpenTab');
+  const snoozeExpiry = item.videoId ? popupSnoozedVideos[item.videoId] : null;
+  const isSnoozed = Boolean(snoozeExpiry && snoozeExpiry > Date.now());
+  const durationText = (Number.isFinite(Number(item.duration)) && item.duration > 0)
+    ? formatDuration(item.duration)
+    : 'N/A';
+
+  const root = document.createElement('div');
+  root.className = `video-item ${isActive ? 'active' : ''}`.trim();
+  root.dataset.itemId = itemId;
+  root.dataset.source = isWatchLaterItem ? 'watch-later' : isLikedItem ? 'liked-videos' : 'tab';
+  root.dataset.videoId = videoId || '';
+  root.dataset.tabId = isExternalSourceItem ? '' : String(item.id);
+
+  const numberBadge = document.createElement('span');
+  numberBadge.className = 'video-number';
+  numberBadge.textContent = String(itemNumber);
+  root.appendChild(numberBadge);
+
+  const thumb = document.createElement('div');
+  thumb.className = `video-thumbnail ${!thumbnailUrl ? 'error' : ''}`.trim();
+  if (thumbnailUrl) {
+    const img = document.createElement('img');
+    img.src = thumbnailUrl;
+    img.alt = 'thumbnail';
+    thumb.appendChild(img);
+  } else {
+    const fallback = document.createElement('span');
+    fallback.textContent = '▶️';
+    thumb.appendChild(fallback);
+  }
+  root.appendChild(thumb);
+
+  const actions = document.createElement('div');
+  actions.className = 'video-actions';
+
+  const snoozeBtn = document.createElement('button');
+  snoozeBtn.className = 'action-snooze';
+  snoozeBtn.title = 'Adiar 1 hora';
+  snoozeBtn.textContent = '⏰';
+  actions.appendChild(snoozeBtn);
+
+  if (isSnoozed) {
+    const unsnoozeBtn = document.createElement('button');
+    unsnoozeBtn.className = 'action-unsnooze';
+    unsnoozeBtn.title = 'Remover adiamento';
+    unsnoozeBtn.textContent = '↺';
+    actions.appendChild(unsnoozeBtn);
+  }
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'action-remove';
+  removeBtn.title = 'Remover';
+  removeBtn.textContent = '×';
+  actions.appendChild(removeBtn);
+  root.appendChild(actions);
+
+  const info = document.createElement('div');
+  info.className = 'video-info';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'video-title';
+  titleEl.textContent = itemTitle;
+  info.appendChild(titleEl);
+
+  const duration = document.createElement('span');
+  duration.className = 'video-duration';
+  duration.textContent = durationText;
+  info.appendChild(duration);
+
+  if (isSnoozed) {
+    const snoozed = document.createElement('span');
+    snoozed.className = 'video-snoozed';
+    snoozed.textContent = 'Snoozed';
+    info.appendChild(document.createTextNode(' '));
+    info.appendChild(snoozed);
+  }
+
+  info.appendChild(document.createTextNode(' '));
+  const source = document.createElement('span');
+  source.className = 'video-source';
+  source.textContent = sourceLabel;
+  info.appendChild(source);
+
+  root.appendChild(info);
+  return root;
+}
+
 function renderVideosList(videoItems, activeTabId, filterText = '') {
   const filteredItems = applyFilter(videoItems, filterText);
   const container = document.getElementById('videosList');
@@ -291,85 +423,24 @@ function renderVideosList(videoItems, activeTabId, filterText = '') {
   });
 
   if (videoItems.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <p>No videos open yet</p>
-        <p style="font-size: 12px; margin-top: 8px; color: #666;">Open some Shorts or videos to start</p>
-      </div>
-    `;
+    renderEmptyState(container, 'No videos open yet', 'Open some Shorts or videos to start');
     return;
   }
 
   if (filteredItems.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <p>No videos match the filter</p>
-      </div>
-    `;
+    renderEmptyState(container, 'No videos match the filter');
     return;
   }
 
-  container.innerHTML = sortedItems
-    .map((item, index) => {
-      const itemNumber = index + 1;
-      const isWatchLaterItem = item.source === 'watch-later';
-      const isLikedItem = item.source === 'liked-videos';
-      const videoId = (isWatchLaterItem || isLikedItem) ? item.videoId : extractVideoId(item.url);
-      if (videoId && isVideoHidden(videoId)) {
-        return '';
-      }
-      const thumbnailUrl = getVideoThumbnailUrl(videoId);
-      const isExternalSourceItem = isWatchLaterItem || isLikedItem;
-      const isActive = !isExternalSourceItem && item.id === activeTabId;
-      const numberBadge = `<span class="video-number">${itemNumber}</span>`;
-      const itemId = isWatchLaterItem
-        ? `wl-${videoId}`
-        : isLikedItem
-          ? `ll-${videoId}`
-          : String(item.id);
-      const itemTitle = item.title || (isWatchLaterItem
-        ? `Watch Later • ${videoId}`
-        : isLikedItem
-          ? `Liked Videos • ${videoId}`
-          : 'Untitled');
-      const sourceLabel = isWatchLaterItem
-        ? getMessageWithFallback('sourceWatchLater')
-        : isLikedItem
-          ? getMessageWithFallback('sourceLikedVideos')
-          : getMessageWithFallback('sourceOpenTab');
-      const sourceBadge = `<span class="video-source">${sourceLabel}</span>`;
-      const snoozeExpiry = item.videoId ? popupSnoozedVideos[item.videoId] : null;
-      const isSnoozed = Boolean(snoozeExpiry && snoozeExpiry > Date.now());
-      const snoozedBadge = isSnoozed ? `<span class="video-snoozed">Snoozed</span>` : '';
-      const durationText = (Number.isFinite(Number(item.duration)) && item.duration > 0)
-        ? formatDuration(item.duration)
-        : 'N/A';
-      const durationBadge = `<span class="video-duration">${durationText}</span>`;
-      
-      return `
-        <div class="video-item ${isActive ? 'active' : ''}" data-item-id="${itemId}" data-source="${isWatchLaterItem ? 'watch-later' : isLikedItem ? 'liked-videos' : 'tab'}" data-video-id="${videoId || ''}" data-tab-id="${isExternalSourceItem ? '' : item.id}">
-          ${numberBadge}
-          <div class="video-thumbnail ${!thumbnailUrl ? 'error' : ''}">
-            ${thumbnailUrl 
-              ? `<img src="${thumbnailUrl}" alt="thumbnail">` 
-              : '<span>▶️</span>'
-            }
-          </div>
-          <div class="video-actions">
-            <button class="action-snooze" title="Adiar 1 hora">⏰</button>
-            ${isSnoozed ? '<button class="action-unsnooze" title="Remover adiamento">↺</button>' : ''}
-            <button class="action-remove" title="Remover">×</button>
-          </div>
-          <div class="video-info">
-            <div class="video-title">${escapeHtml(itemTitle)}</div>
-            ${durationBadge} ${snoozedBadge}
-            ${sourceBadge}
-          </div>
-        </div>
-      `;
-    })
-    .filter(Boolean)
-    .join('');
+  container.replaceChildren();
+  const fragment = document.createDocumentFragment();
+  sortedItems.forEach((item, index) => {
+    const row = createVideoListItemElement(item, index, activeTabId);
+    if (row) {
+      fragment.appendChild(row);
+    }
+  });
+  container.appendChild(fragment);
 
   // Attach image error handlers and click handlers
   container.querySelectorAll('.video-item').forEach((item) => {
